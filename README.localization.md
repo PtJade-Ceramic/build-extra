@@ -50,9 +50,14 @@
 
 ## 环境注意事项(本机)
 
-- SDK 位于 OneDrive,文件同步会导致新建 .git/文件间歇失败 → 源码放非 OneDrive 路径 `C:\Users\tbyta\src`。
+- **写入失败根因 = Smart App Control(智能应用控制),非 OneDrive**:构建中多次 mkdir/git-init/pacman 锁库/gem 写入失败,
+  是 SAC 阻止进程写盘(用户手动放行)。SAC 关闭(`VerifiedAndReputablePolicyState=0`)后写入正常;
+  OneDrive Files On-Demand 未开启。源码放非 OneDrive 路径 `C:\Users\tbyta\src` 仍推荐(规避本机拦截)。
 - 直连 GitHub 挂起/SSL 失败 → 用 `gh-proxy.com` 前缀克隆。
-- pacman 写操作(装包)因 OneDrive 锁库失败 → 手动下载 MSYS2 包 + `bsdtar` 解压。
+- **SSL 后端 = 原生 Schannel(与上游 Git for Windows 一致)**:内置 git 链接 libcurl(Schannel),
+  安装版 `etc/gitconfig` 无 sslbackend 覆盖 → 默认 schannel。本机 schannel 验证 github 失败
+  (`CRYPT_E_NO_REVOCATION_CHECK`)是 Watt Toolkit MITM 中间证书不被 Windows 信任所致(本机环境问题);
+  SDK 仓库 dev config 的 `http.sslbackend=openssl + ca-bundle` 是 Watt Toolkit 本机绕过,不进安装包。
 - MSYS2 Rust 工具链与 SDK 的 llvm/openssl 不兼容 → 自包含 Rust 工具链位于 `C:\Users\tbyta\rust`
   (MSYS2 匹配版本),git 构建时 `PATH` 前置其 `clangarm64/bin`。
 - 构建 git 用 `NO_RUST` 之外的官方同款方式(带 Rust gitcore,`aarch64-pc-windows-gnullvm` 目标)。
@@ -72,16 +77,16 @@ cd /c/Users/tbyta/src/git-manpages-l10n
 MSYSTEM=CLANGARM64 bash --login -c \
   'export GEM_HOME=/c/Users/tbyta/rubygems; export GEM_PATH=/c/Users/tbyta/rubygems:/clangarm64/lib/ruby/gems/4.0.0; make -j$(nproc) man && make install-man mandir=/c/Users/tbyta/OneDrive/Printer/GitHub/git-sdk-arm64/clangarm64/share/man'
 
-# 构建安装程序
+# 构建安装程序(上游 SemVer 版本号)
 cd /c/Users/tbyta/src/build-extra/installer
 MSYSTEM=CLANGARM64 bash --login -c \
-  'unset GIT_EDITOR VISUAL EDITOR; ./release.sh 0-test'
-# 产物:C:\Users\tbyta\Git-0-test-arm64.exe
+  'unset GIT_EDITOR VISUAL EDITOR; ./release.sh 2.55.0.windows.3'
+# 产物:C:\Users\tbyta\Git-2.55.0.windows.3-arm64.exe(APP_VERSION=2.55.0.3)
 ```
 
 ## 验证结果(2026-08-11)
 
-- `Git-0-test-arm64.exe`(89 MB)静默安装成功。
+- `Git-2.55.0.windows.3-arm64.exe`(89 MB,上游 SemVer 版本号)静默安装成功。
 - `git version 2.55.0.windows.3`(aarch64,从源码构建,含 Rust gitcore)。
 - 20 语言 git.mo 生效:`LANG=zh_CN.UTF-8 git status` → 中文。
 - 英文/中文/乌克兰语 man 页渲染正常:
