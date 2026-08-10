@@ -182,6 +182,7 @@ else
 		ETC_GITCONFIG="$etc_gitconfig" \
 		PACKAGE_VERSIONS_FILE=package-versions.txt \
 		INCLUDE_GIT_UPDATE=1 \
+		WITH_L10N=1 \
 		sh ../make-file-list.sh)" ||
 	die "Could not generate file list"
 fi
