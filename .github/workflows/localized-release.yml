@@ -119,13 +119,19 @@ jobs:
           # SDK 根目录来自官方 setup action 输出(Windows 路径)
           SDK_WIN="${{ steps.setup-sdk.outputs.result }}"
           SDK_MSYS="$(cygpath -u "$SDK_WIN")"
+          # SDK 根可能是 /(此时 SDK 即当前根);避免 // 变成 UNC 路径
+          case "$SDK_MSYS" in
+          /) SDK_BASH=/usr/bin/bash.exe;;
+          *) SDK_BASH="$SDK_MSYS/usr/bin/bash.exe";;
+          esac
           WORK_WIN="$(cygpath -w "$GITHUB_WORKSPACE/work")"
-          # 转成 SDK bash 的 MSYS 路径,如 /d/a/build-extra/build-extra/work
+          # 转成 SDK bash 的 MSYS 路径,如 /c/a/build-extra/build-extra/work
           WORK_MSYS="/$(echo "$WORK_WIN" | sed 's/\\/\//g; s/^\([A-Za-z]\):/\L\1/')"
           echo "SDK=$SDK_MSYS"
+          echo "SDK_BASH=$SDK_BASH"
           echo "WORK_MSYS=$WORK_MSYS"
           MSYSTEM=CLANGARM64 \
-            "$SDK_MSYS/usr/bin/bash.exe" --login -c \
+            "$SDK_BASH" --login -c \
               "cd '$WORK_MSYS' && build-extra/ci/build-localized.sh '$VERSION' '$WORK_MSYS'" \
             || { echo "构建失败"; exit 1; }
 
