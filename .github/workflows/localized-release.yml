@@ -1,0 +1,179 @@
+name: Localized ARM64 release
+
+# =============================================================================
+# 自动构建"带完整本地化的 ARM64 Git for Windows 安装程序"并发布。
+#
+# 触发:
+#   - 手动(workflow_dispatch):可选填版本号(如 2.55.0.windows.3)
+#   - 定时(schedule):每天检查上游 git-for-windows/git 是否有新 release,
+#     有则自动构建并发布。
+#
+# 需要配置(仓库 Settings → Secrets and variables → Actions):
+#   - LOCALIZED_RELEASE_TOKEN: 一个 PAT,需对 PtJade-Ceramic/git 有 contents:write
+#     (用于发布到 git 的 fork 仓库)。若未配置,publish 一步会跳过。
+# =============================================================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Git for Windows 版本(如 2.55.0.windows.3);留空则用上游最新'
+        required: false
+        type: string
+  schedule:
+    - cron: '30 4 * * *'   # 每天 04:30 UTC 检查一次
+
+env:
+  BUILD_EXTRA_REPO: PtJade-Ceramic/build-extra
+  GIT_FORK_REPO: PtJade-Ceramic/git
+  BUILD_EXTRA_BRANCH: localization/all-languages
+  SDK_ARCH: arm64
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1) 检测要构建的版本
+  # ---------------------------------------------------------------------------
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.detect.outputs.version }}
+      skip: ${{ steps.detect.outputs.skip }}
+      is_new: ${{ steps.detect.outputs.is_new }}
+    steps:
+      - name: 确定版本(手动输入优先,否则取上游最新)
+        id: detect
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          if [ -n "${{ inputs.version }}" ]; then
+            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+            echo "is_new=true" >> "$GITHUB_OUTPUT"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          LATEST="$(gh api repos/git-for-windows/git/releases/latest --jq .tag_name)"
+          echo "上游最新: $LATEST"
+
+          # 已发布过的版本:查 git fork 的 releases(含 assets)
+          EXISTS="$(gh api "repos/$GIT_FORK_REPO/releases/tags/${LATEST}-localized-arm64" \
+              --jq '.assets[]?.name' 2>/dev/null | grep -c '^Git-.*-arm64\.exe$' || true)"
+          if [ "$EXISTS" -ge 1 ]; then
+            echo "已构建过 $LATEST,跳过"
+            echo "version=$LATEST" >> "$GITHUB_OUTPUT"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "is_new=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "发现新版本 $LATEST"
+            echo "version=$LATEST" >> "$GITHUB_OUTPUT"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "is_new=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ---------------------------------------------------------------------------
+  # 2) 构建本地化安装程序
+  # ---------------------------------------------------------------------------
+  build:
+    needs: detect
+    if: needs.detect.outputs.skip == 'false'
+    runs-on: windows-latest
+    timeout-minutes: 180
+    outputs:
+      version: ${{ needs.detect.outputs.version }}
+    env:
+      VERSION: ${{ needs.detect.outputs.version }}
+    steps:
+      - name: 检出 build-extra(本地化分支)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.BUILD_EXTRA_REPO }}
+          ref: ${{ env.BUILD_EXTRA_BRANCH }}
+          path: work/build-extra
+
+      - name: 下载并解压 git-sdk-aarch64(minimal)
+        shell: pwsh
+        run: |
+          $url = "https://github.com/git-for-windows/git-sdk-arm64/releases/download/ci-artifacts/git-sdk-aarch64-minimal.tar.gz"
+          Write-Host "下载 SDK ..."
+          Invoke-WebRequest -Uri $url -OutFile sdk.tar.gz
+          New-Item -ItemType Directory -Path sdk | Out-Null
+          tar -xzf sdk.tar.gz -C sdk
+          Write-Host "SDK 解压完成"
+
+      - name: 检出 git 源码(对应 tag)
+        shell: bash
+        run: |
+          git clone --depth 1 --branch "v$VERSION" https://github.com/git-for-windows/git work/git
+          echo "git 源码就绪: v$VERSION"
+
+      - name: 检出 git-manpages-l10n(版本对齐)
+        shell: bash
+        run: |
+          L10N_VER="$(echo "$VERSION" | sed 's/\.windows\.[0-9]*//')"
+          git clone --depth 1 https://github.com/jnavila/git-manpages-l10n work/git-manpages-l10n
+          cd work/git-manpages-l10n
+          git checkout "$L10N_VER" 2>/dev/null || echo "l10n tag $L10N_VER 不存在,用默认分支"
+          echo "l10n 就绪: $L10N_VER"
+
+      - name: 运行本地化构建脚本(在 SDK 的 CLANGARM64 bash 内)
+        shell: bash
+        run: |
+          WORK_WIN="$(cygpath -w "$GITHUB_WORKSPACE/work")"   # D:\a\...\work
+          # 转成 SDK bash 的 MSYS 路径,如 /d/a/build-extra/build-extra/work
+          WORK_MSYS="/$(echo "$WORK_WIN" | sed 's/\\/\//g; s/^\([A-Za-z]\):/\L\1/')"
+          echo "WORK_MSYS=$WORK_MSYS"
+          MSYSTEM=CLANGARM64 \
+            "$GITHUB_WORKSPACE/sdk/usr/bin/bash.exe" --login -c \
+              "cd '$WORK_MSYS' && build-extra/ci/build-localized.sh '$VERSION' '$WORK_MSYS'" \
+            || { echo "构建失败"; exit 1; }
+
+      - name: 上传安装程序产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: Git-${{ env.VERSION }}-arm64
+          path: |
+            work/dist/Git-*-arm64.exe
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # 3) 发布到 git fork 的 Release
+  # ---------------------------------------------------------------------------
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    if: needs.build.result == 'success'
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+    steps:
+      - name: 下载安装程序
+        uses: actions/download-artifact@v4
+        with:
+          name: Git-${{ needs.build.outputs.version }}-arm64
+          path: dist
+
+      - name: 发布到 PtJade-Ceramic/git
+        env:
+          GH_TOKEN: ${{ secrets.LOCALIZED_RELEASE_TOKEN }}
+        shell: bash
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::warning::未配置 LOCALIZED_RELEASE_TOKEN,跳过发布"
+            exit 0
+          fi
+          TAG="v${VERSION}-localized-arm64"
+          EXE="$(ls dist/Git-*-arm64.exe | head -1)"
+          echo "发布 $TAG ← $EXE"
+          gh release create "$TAG" \
+            --repo "$GIT_FORK_REPO" \
+            --title "Git for Windows ${VERSION} ARM64 — 本地化 (Localized, CI)" \
+            --notes "$(cat <<'EOF'
+          由 GitHub Actions 自动构建。
+          本地化内容: git core 消息、man 页与 HTML 文档(全部已翻译语言)、完整 man 工具链。
+          详细说明见 https://github.com/PtJade-Ceramic/build-extra/blob/localization/all-languages/README.localization.md
+          使用:
+          - 终端中文 man 页: git config --global help.format man
+          - HTML 中文文档: git config --global help.htmlpath C:/Program Files/Git/clangarm64/share/doc/git-doc/zh_CN
+          EOF
+          )" \
+            "$EXE" || { echo "发布失败(可能 tag 已存在)"; exit 1; }
