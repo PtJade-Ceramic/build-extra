@@ -13,10 +13,14 @@
 官方默认不传此变量(安装包不含任何 locale 文件)。
 
 ### 2. `make-file-list.sh` — 放行 man 页
-- 包列表加入 `man-db groff`(提供 `man`/`mandb` 命令与 groff 排版工具,man 渲染必需)。
+- 包列表加入 `man-db groff gcc-libs`(`man`/`mandb` 命令与 groff 排版工具,man 渲染必需;
+  `gcc-libs` 提供 groff 的 C++ 组件 `preconv`/`tbl`/`groff` 依赖的 `msys-stdc++-6.dll`)。
 - 无条件过滤 `-e '/man/'`(子串匹配,排除全部 man 页)改为
   `-e '^/usr/man/' -e '^/usr/.*/man/'`(只排除 MSYS 侧 man 页)。
   这样 `clangarm64/share/man/**`(英文 + 28 语言翻译 man 页)进入安装包。
+- 过滤正则 `^/usr/bin/msys-\(db\|curl\|icu\|gfortran\|stdc++\|quadmath\)[^/]*\.dll$`
+  中移除 `stdc++`(上游为省体积故意排除 gcc 运行时大 DLL,但 groff 依赖
+  `msys-stdc++-6.dll`,缺它会导致 `man git` 输出 0 字节/空白)。
 
 ### 3. `keep-despite-upgrade.txt` — 非包属文件清单
 列出随包的自定义文件(它们不属于任何 pacman 包,`pacman -Ql` 不会列出):
