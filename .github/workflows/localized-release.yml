@@ -77,8 +77,8 @@ jobs:
   build:
     needs: detect
     if: needs.detect.outputs.skip == 'false'
-    runs-on: windows-latest
-    timeout-minutes: 180
+    runs-on: windows-11-arm
+    timeout-minutes: 240
     outputs:
       version: ${{ needs.detect.outputs.version }}
     env:
@@ -91,15 +91,12 @@ jobs:
           ref: ${{ env.BUILD_EXTRA_BRANCH }}
           path: work/build-extra
 
-      - name: 下载并解压 git-sdk-aarch64(minimal)
-        shell: pwsh
-        run: |
-          $url = "https://github.com/git-for-windows/git-sdk-arm64/releases/download/ci-artifacts/git-sdk-aarch64-minimal.tar.gz"
-          Write-Host "下载 SDK ..."
-          Invoke-WebRequest -Uri $url -OutFile sdk.tar.gz
-          New-Item -ItemType Directory -Path sdk | Out-Null
-          tar -xzf sdk.tar.gz -C sdk
-          Write-Host "SDK 解压完成"
+      - name: 设置 Git for Windows SDK(ARM64 build-installers)
+        id: setup-sdk
+        uses: git-for-windows/setup-git-for-windows-sdk@v2
+        with:
+          flavor: build-installers
+          architecture: aarch64
 
       - name: 检出 git 源码(对应 tag)
         shell: bash
@@ -119,12 +116,16 @@ jobs:
       - name: 运行本地化构建脚本(在 SDK 的 CLANGARM64 bash 内)
         shell: bash
         run: |
-          WORK_WIN="$(cygpath -w "$GITHUB_WORKSPACE/work")"   # D:\a\...\work
+          # SDK 根目录来自官方 setup action 输出(Windows 路径)
+          SDK_WIN="${{ steps.setup-sdk.outputs.result }}"
+          SDK_MSYS="$(cygpath -u "$SDK_WIN")"
+          WORK_WIN="$(cygpath -w "$GITHUB_WORKSPACE/work")"
           # 转成 SDK bash 的 MSYS 路径,如 /d/a/build-extra/build-extra/work
           WORK_MSYS="/$(echo "$WORK_WIN" | sed 's/\\/\//g; s/^\([A-Za-z]\):/\L\1/')"
+          echo "SDK=$SDK_MSYS"
           echo "WORK_MSYS=$WORK_MSYS"
           MSYSTEM=CLANGARM64 \
-            "$GITHUB_WORKSPACE/sdk/usr/bin/bash.exe" --login -c \
+            "$SDK_MSYS/usr/bin/bash.exe" --login -c \
               "cd '$WORK_MSYS' && build-extra/ci/build-localized.sh '$VERSION' '$WORK_MSYS'" \
             || { echo "构建失败"; exit 1; }
 
