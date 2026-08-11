@@ -29,6 +29,8 @@
   标准 locale 目录名(man-db 按 `LANG` 查找 `zh_CN`/`zh_TW`,
   l10n 项目的 `zh_HANS-CN`/`zh_HANT` 命名不匹配,需映射)
 - `/usr/bin/col.exe` — man 输出管道需要的 `col`(属被排除的 util-linux 包)
+- `/clangarm64/share/doc/git-doc/<lang>/**` — 28 语言翻译 git HTML 文档
+  (`git help` html 模式经 `help.htmlpath` 指向语言目录使用,如中文 `zh_CN/`)
 
 ## 本地化资源来源与构建
 
@@ -51,6 +53,17 @@
   2. Git Bash 的 `profile.d/lang.sh` 自动按 Windows 用户区域设 `LANG`(`locale -uU`)
   3. `man`/`groff`/`less` 随包,MANPATH 含 `clangarm64/share/man`
   → 验证:`LANG=zh_CN.UTF-8 man git` 显示中文手册页。
+
+### git HTML 文档(28 语言)
+- 与 man 页同源:同一份 `make html` 从翻译 adoc 生成 xhtml5(`asciidoctor -b xhtml5`)。
+- 安装到 `clangarm64/share/doc/git-doc/<lang>/`(与官方英文 html 同目录,分语言子目录)。
+- 简体/繁体映射同上:`zh_HANS-CN→zh_CN`、`zh_HANT→zh_TW`。
+- **git help 的 html 模式不按 locale 自动查找**(`builtin/help.c` 只打开 `htmldir/<page>.html`),
+  需用户配置指向语言目录:
+  `git config --global help.htmlpath "<安装目录>\clangarm64\share\doc\git-doc\zh_CN"`
+  之后 `git help git`(help.format=html)用浏览器打开**中文 HTML 文档**。
+- 完整语言约 150 页/语言(fr/ru/uk/sv/zh_HANS-CN/pt_BR 等);骨架语言缺页(与 man 页同门槛);
+  非完整语言建议指向 `zh_CN` 这类完整目录,缺页由英文页面兜底。
 
 ## 环境注意事项(本机)
 
@@ -81,6 +94,14 @@ cd /c/Users/tbyta/src/git-manpages-l10n
 MSYSTEM=CLANGARM64 bash --login -c \
   'export GEM_HOME=/c/Users/tbyta/rubygems; export GEM_PATH=/c/Users/tbyta/rubygems:/clangarm64/lib/ruby/gems/4.0.0; make -j$(nproc) man && make install-man mandir=/c/Users/tbyta/OneDrive/Printer/GitHub/git-sdk-arm64/clangarm64/share/man'
 
+# 构建 28 语言 HTML 文档并安装
+cd /c/Users/tbyta/src/git-manpages-l10n
+MSYSTEM=CLANGARM64 bash --login -c \
+  'export GEM_HOME=/c/Users/tbyta/rubygems; export GEM_PATH=/c/Users/tbyta/rubygems:/clangarm64/lib/ruby/gems/4.0.0; make -j$(nproc) html && make install-html prefix=/c/Users/tbyta/OneDrive/Printer/GitHub/git-sdk-arm64/clangarm64/share/doc/git-doc'
+# 中文目录映射(与 man 页一致):
+#   cp -r .../git-doc/zh_HANS-CN .../git-doc/zh_CN
+#   cp -r .../git-doc/zh_HANT .../git-doc/zh_TW
+
 # 构建安装程序(上游 SemVer 版本号)
 cd /c/Users/tbyta/src/build-extra/installer
 MSYSTEM=CLANGARM64 bash --login -c \
@@ -97,3 +118,6 @@ MSYSTEM=CLANGARM64 bash --login -c \
   - `man git` → 英文;`LANG=zh_CN.UTF-8 man git` → 中文;
   - `LANG=uk_UA.UTF-8 man git` → 乌克兰语。
 - 安装包含 man-db/groff/col/less 完整 man 工具链。
+- 28 语言 HTML 文档:`clangarm64/share/doc/git-doc/zh_CN/git.html`(中文,150 页);
+  配置 `git config --global help.htmlpath "...\clangarm64\share\doc\git-doc\zh_CN"` 后,
+  `git help git` 浏览器打开中文 HTML 文档。
