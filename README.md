@@ -1,5 +1,11 @@
 # Build environment for Git for Windows
 
+> **🔧 Localization Custom Fork**
+>
+> This fork builds an **ARM64 Git for Windows installer with full localization**:
+> 20-language git core messages, 28-language man pages & HTML docs, and a complete man toolchain.
+> See [README.localization.md](README.localization.md) for details.
+
 This build-extra repository is a core part of the Git for Windows SDK, the build environment for [Git for Windows](https://gitforwindows.org/). Any issues should be reported using the project's main [Git fork](https://github.com/git-for-windows/git).
 
 The easiest way to install Git for Windows SDK is via the [Git SDK installer](https://github.com/git-for-windows/build-extra/releases/latest). This installer will clone our [repositories](http://github.com/git-for-windows/), including all the necessary components to build Git for Windows, and perform an initial build. It will also install a shortcut to the Git SDK Bash on the desktop.
