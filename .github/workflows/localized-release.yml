@@ -171,6 +171,10 @@ jobs:
           TAG="v${VERSION}-localized-arm64"
           EXE="$(ls dist/Git-*-arm64.exe | head -1)"
           echo "发布 $TAG ← $EXE"
+          # 覆盖旧发布:同名 tag/release 可能已存在(本地手动或上次 CI 发布过),
+          # 先删除 release 与 tag 再创建,保证每次产物为最新。
+          gh release delete "$TAG" --repo "$GIT_FORK_REPO" --yes 2>/dev/null || true
+          gh api -X DELETE "/repos/$GIT_FORK_REPO/git/refs/tags/$TAG" 2>/dev/null || true
           gh release create "$TAG" \
             --repo "$GIT_FORK_REPO" \
             --title "Git for Windows ${VERSION} ARM64 — 本地化 (Localized, CI)" \
