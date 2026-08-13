@@ -182,21 +182,28 @@ echo "==> reproducible build: SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH GIT_DATE=$GIT
 	# ---- Toolchain snapshot (printed for diagnostics; also saved to dist/sdk-info.txt at the
 	#      end so every release records which SDK/toolchain it was built with) ----
 	has_cmd () { command -v "$1" >/dev/null 2>&1 || command -v "$1.exe" >/dev/null 2>&1; }
+	# probe prints "<tool>: <version>" only if the tool exists; under `set -e` a bare
+	# `has_cmd X && echo` would abort the whole script when X is missing, so use `if`.
+	probe () { if has_cmd "$1"; then echo "$1: $($1 --version 2>/dev/null | head -1)"; fi; }
 	toolchain_snapshot () {
 		{
 			echo "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH"
 			echo "git version: $("$GIT" --version 2>/dev/null)"
-			has_cmd clang && echo "clang: $(clang --version 2>/dev/null | head -1)"
-			has_cmd gcc && echo "gcc: $(gcc --version 2>/dev/null | head -1)"
-			has_cmd perl && echo "perl: $(perl -e 'print $^V' 2>/dev/null)"
-			has_cmd python3 && echo "python3: $(python3 --version 2>/dev/null)"
-			has_cmd ruby && echo "ruby: $(ruby --version 2>/dev/null)"
-			has_cmd asciidoctor && echo "asciidoctor: $(asciidoctor --version 2>/dev/null | head -1)"
-			has_cmd msgmerge && echo "gettext: $(msgmerge --version 2>/dev/null | head -1)"
-			has_cmd make && echo "make: $(make --version 2>/dev/null | head -1)"
-			has_cmd pacman && echo "pacman: $(pacman --version 2>/dev/null | tr '\r' ' ' | grep -m1 -oE 'Pacman v[0-9.]+')"
-			test -f /etc/os-release &&
-				echo "sdk: $(grep -E '^(PRETTY_NAME|VERSION)=' /etc/os-release | tr '\n' '; ')"
+			probe clang
+			probe gcc
+			if has_cmd perl; then echo "perl: $(perl -e 'print $^V' 2>/dev/null)"; fi
+			probe python3
+			probe ruby
+			probe asciidoctor
+			probe msgmerge
+			probe make
+			if has_cmd pacman; then
+				echo "pacman: $(pacman --version 2>/dev/null | tr '\r' ' ' | grep -m1 -oE 'Pacman v[0-9.]+')"
+			fi
+			# CI build-installers SDK may lack /etc/os-release; guard against set -e aborting
+			if test -f /etc/os-release; then
+				echo "sdk: $(grep -E '^(PRETTY_NAME|VERSION)=' /etc/os-release 2>/dev/null | tr '\n' '; ')"
+			fi
 		}
 	}
 	echo "==> toolchain snapshot:"
