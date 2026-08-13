@@ -1,27 +1,27 @@
 name: Localized ARM64 release
 
 # =============================================================================
-# 自动构建"带完整本地化的 ARM64 Git for Windows 安装程序"并发布。
+# Automatically build and release a fully localized ARM64 Git for Windows installer.
 #
-# 触发:
-#   - 手动(workflow_dispatch):可选填版本号(如 2.55.0.windows.3)
-#   - 定时(schedule):每天检查上游 git-for-windows/git 是否有新 release,
-#     有则自动构建并发布。
+# Triggers:
+#   - manual (workflow_dispatch): optionally specify a version (e.g. 2.55.0.windows.3)
+#   - scheduled (schedule): checks git-for-windows/git daily for a new release,
+#     and builds/releases it automatically if found.
 #
-# 需要配置(仓库 Settings → Secrets and variables → Actions):
-#   - LOCALIZED_RELEASE_TOKEN: 一个 PAT,需对 PtJade-Ceramic/git 有 contents:write
-#     (用于发布到 git 的 fork 仓库)。若未配置,publish 一步会跳过。
+# Required configuration (Repository Settings -> Secrets and variables -> Actions):
+#   - LOCALIZED_RELEASE_TOKEN: a PAT with contents:write on PtJade-Ceramic/git
+#     (used to publish to the git fork repo). If unset, the publish step is skipped.
 # =============================================================================
 
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Git for Windows 版本(如 2.55.0.windows.3);留空则用上游最新'
+        description: 'Git for Windows version (e.g. 2.55.0.windows.3); leave empty for latest upstream'
         required: false
         type: string
   schedule:
-    - cron: '30 4 * * *'   # 每天 04:30 UTC 检查一次
+    - cron: '30 4 * * *'   # run once daily at 04:30 UTC
 
 env:
   BUILD_EXTRA_REPO: PtJade-Ceramic/build-extra
@@ -31,7 +31,7 @@ env:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # 1) 检测要构建的版本
+  # 1) Detect the version to build
   # ---------------------------------------------------------------------------
   detect:
     runs-on: ubuntu-latest
@@ -41,13 +41,13 @@ jobs:
       l10n_sha: ${{ steps.detect.outputs.l10n_sha }}
       tag: ${{ steps.detect.outputs.tag }}
     steps:
-      - name: 确定版本与 L10n 提交(任一更新则发行)
+      - name: Resolve Git version and L10n commit (release when either changes)
         id: detect
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -e
-          # 1) Git 版本:手动输入优先,否则取上游最新 release(统一去掉 v 前缀)
+          # 1) Git version: manual input takes priority, else latest upstream release (strip v prefix)
           if [ -n "${{ inputs.version }}" ]; then
             VERSION="${{ inputs.version }}"
           else
@@ -55,23 +55,23 @@ jobs:
           fi
           VERSION="${VERSION#v}"
 
-          # 2) L10n 最新提交(滚动更新,取 master 最新 commit)
+          # 2) Latest L10n commit (rolling; use the newest commit on master)
           L10N_SHA="$(gh api repos/jnavila/git-manpages-l10n/commits/master --jq .sha)"
           L10N_SHA_SHORT="$(echo "$L10N_SHA" | cut -c1-7)"
 
-          # 3) 发行 tag = git 版本 + l10n 提交 sha(本仓库只发 ARM64,
-          #    Git 版本自带 tag(如 v2.55.0.windows.4),后面的短 sha 只可能是
-          #    l10n 的,不会混淆;两者都固定 → 可复现)
+          # 3) Release tag = git version + l10n commit sha (this repo only publishes ARM64;
+          #    the Git version has its own tag (e.g. v2.55.0.windows.4), so the short sha can only be
+          #    the l10n one, no ambiguity; both are pinned -> reproducible)
           TAG="v${VERSION}-${L10N_SHA_SHORT}"
 
-          # 4) 已发布过该 tag(git 版本与 l10n 提交都未更新)→ 跳过
+          # 4) If this tag was already released (git version AND l10n commit unchanged) -> skip
           EXISTS="$(gh api "repos/$GIT_FORK_REPO/releases/tags/$TAG" \
               --jq '.assets[]?.name' 2>/dev/null | grep -c '^Git-.*-arm64\.exe$' || true)"
           if [ "$EXISTS" -ge 1 ]; then
-            echo "git=$VERSION l10n=$L10N_SHA_SHORT 均未更新(已有 $TAG),跳过"
+            echo "git=$VERSION l10n=$L10N_SHA_SHORT unchanged (already released as $TAG), skipping"
             SKIP=true
           else
-            echo "将构建 $TAG(git=$VERSION l10n=$L10N_SHA_SHORT)"
+            echo "Will build $TAG (git=$VERSION l10n=$L10N_SHA_SHORT)"
             SKIP=false
           fi
 
@@ -81,7 +81,7 @@ jobs:
           echo "skip=$SKIP" >> "$GITHUB_OUTPUT"
 
   # ---------------------------------------------------------------------------
-  # 2) 构建本地化安装程序
+  # 2) Build the localized installer
   # ---------------------------------------------------------------------------
   build:
     needs: detect
@@ -96,46 +96,46 @@ jobs:
       VERSION: ${{ needs.detect.outputs.version }}
       L10N_SHA: ${{ needs.detect.outputs.l10n_sha }}
     steps:
-      - name: 检出 build-extra(本地化分支)
+      - name: Checkout build-extra (localization branch)
         uses: actions/checkout@v4
         with:
           repository: ${{ env.BUILD_EXTRA_REPO }}
           ref: ${{ env.BUILD_EXTRA_BRANCH }}
           path: work/build-extra
 
-      - name: 设置 Git for Windows SDK(ARM64 build-installers)
+      - name: Set up Git for Windows SDK (ARM64 build-installers)
         id: setup-sdk
         uses: git-for-windows/setup-git-for-windows-sdk@v2
         with:
           flavor: build-installers
           architecture: aarch64
 
-      - name: 检出 git 源码(对应 tag)
+      - name: Checkout git sources (matching tag)
         shell: bash
         run: |
           git clone --depth 1 --branch "v$VERSION" https://github.com/git-for-windows/git work/git
-          echo "git 源码就绪: v$VERSION"
+          echo "git sources ready: v$VERSION"
 
-      - name: 检出 git-manpages-l10n(固定提交,可复现)
+      - name: Checkout git-manpages-l10n (pinned commit, reproducible)
         uses: actions/checkout@v4
         with:
           repository: jnavila/git-manpages-l10n
           ref: ${{ needs.detect.outputs.l10n_sha }}
           path: work/git-manpages-l10n
 
-      - name: 运行本地化构建脚本(在 SDK 的 CLANGARM64 bash 内)
+      - name: Run the localized build script (inside the SDK's CLANGARM64 bash)
         shell: bash
         run: |
-          # SDK 根目录来自官方 setup action 输出(Windows 路径)
+          # SDK root comes from the official setup action output (Windows path)
           SDK_WIN="${{ steps.setup-sdk.outputs.result }}"
           SDK_MSYS="$(cygpath -u "$SDK_WIN")"
-          # SDK 根可能是 /(此时 SDK 即当前根);避免 // 变成 UNC 路径
+          # SDK root may be / (i.e. the SDK is the current root); avoid // becoming a UNC path
           case "$SDK_MSYS" in
           /) SDK_BASH=/usr/bin/bash.exe;;
           *) SDK_BASH="$SDK_MSYS/usr/bin/bash.exe";;
           esac
           WORK_WIN="$(cygpath -w "$GITHUB_WORKSPACE/work")"
-          # 转成 SDK bash 的 MSYS 路径,如 /c/a/build-extra/build-extra/work
+          # Convert to an MSYS path for the SDK bash, e.g. /c/a/build-extra/build-extra/work
           WORK_MSYS="/$(echo "$WORK_WIN" | sed 's/\\/\//g; s/^\([A-Za-z]\):/\L\1/')"
           echo "SDK=$SDK_MSYS"
           echo "SDK_BASH=$SDK_BASH"
@@ -143,9 +143,9 @@ jobs:
           MSYSTEM=CLANGARM64 \
             "$SDK_BASH" --login -c \
               "cd '$WORK_MSYS' && build-extra/ci/build-localized.sh '$VERSION' '$WORK_MSYS'" \
-            || { echo "构建失败"; exit 1; }
+            || { echo "Build failed"; exit 1; }
 
-      - name: 上传安装程序产物
+      - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
           name: Git-${{ env.VERSION }}-arm64
@@ -154,7 +154,7 @@ jobs:
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
-  # 3) 发布到 git fork 的 Release
+  # 3) Publish to the git fork's Release
   # ---------------------------------------------------------------------------
   publish:
     needs: build
@@ -164,37 +164,37 @@ jobs:
       VERSION: ${{ needs.build.outputs.version }}
       TAG: ${{ needs.build.outputs.tag }}
     steps:
-      - name: 下载安装程序
+      - name: Download installer
         uses: actions/download-artifact@v4
         with:
           name: Git-${{ needs.build.outputs.version }}-arm64
           path: dist
 
-      - name: 发布到 PtJade-Ceramic/git
+      - name: Publish to PtJade-Ceramic/git
         env:
           GH_TOKEN: ${{ secrets.LOCALIZED_RELEASE_TOKEN }}
         shell: bash
         run: |
           if [ -z "$GH_TOKEN" ]; then
-            echo "::warning::未配置 LOCALIZED_RELEASE_TOKEN,跳过发布"
+            echo "::warning::LOCALIZED_RELEASE_TOKEN not configured, skipping publish"
             exit 0
           fi
           EXE="$(ls dist/Git-*-arm64.exe | head -1)"
-          echo "发布 $TAG ← $EXE"
-          # 覆盖旧发布:同名 tag/release 可能已存在(本地手动或上次 CI 发布过),
-          # 先删除 release 与 tag 再创建,保证每次产物为最新。
+          echo "Publishing $TAG <- $EXE"
+          # Overwrite previous release: the same tag/release may already exist (manual or from an earlier CI run),
+          # so delete the release and tag first, then recreate, to keep the artifact up to date.
           gh release delete "$TAG" --repo "$GIT_FORK_REPO" --yes 2>/dev/null || true
           gh api -X DELETE "/repos/$GIT_FORK_REPO/git/refs/tags/$TAG" 2>/dev/null || true
           gh release create "$TAG" \
             --repo "$GIT_FORK_REPO" \
-            --title "Git for Windows ${VERSION} ARM64 — 本地化 (Localized, CI)" \
+            --title "Git for Windows ${VERSION} ARM64 - Localized (CI)" \
             --notes "$(cat <<'EOF'
-          由 GitHub Actions 自动构建。
-          本地化内容: git core 消息、man 页与 HTML 文档(全部已翻译语言)、完整 man 工具链。
-          详细说明见 https://github.com/PtJade-Ceramic/build-extra/blob/localization/all-languages/README.localization.md
-          使用:
-          - 终端中文 man 页: git config --global help.format man
-          - HTML 中文文档: git config --global help.htmlpath C:/Program Files/Git/clangarm64/share/doc/git-doc/zh_CN
+          Built automatically by GitHub Actions.
+          Localized content: git core messages, man pages and HTML docs (all translated languages), plus a full man toolchain.
+          Details: https://github.com/PtJade-Ceramic/build-extra/blob/localization/all-languages/README.localization.md
+          Usage:
+          - Chinese man pages in terminal: git config --global help.format man
+          - Chinese HTML docs: git config --global help.htmlpath C:/Program Files/Git/clangarm64/share/doc/git-doc/zh_CN
           EOF
           )" \
-            "$EXE" || { echo "发布失败(可能 tag 已存在)"; exit 1; }
+            "$EXE" || { echo "Publish failed (tag may already exist)"; exit 1; }
