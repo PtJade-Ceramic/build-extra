@@ -137,7 +137,6 @@ jobs:
           repository: jnavila/git-manpages-l10n
           ref: ${{ needs.detect.outputs.l10n_sha }}
           path: work/git-manpages-l10n
-          autocrlf: false
 
       - name: Run the localized build script (inside the SDK's CLANGARM64 bash)
         shell: bash
