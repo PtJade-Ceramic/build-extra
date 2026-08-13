@@ -38,38 +38,47 @@ jobs:
     outputs:
       version: ${{ steps.detect.outputs.version }}
       skip: ${{ steps.detect.outputs.skip }}
-      is_new: ${{ steps.detect.outputs.is_new }}
+      l10n_sha: ${{ steps.detect.outputs.l10n_sha }}
+      tag: ${{ steps.detect.outputs.tag }}
     steps:
-      - name: 确定版本(手动输入优先,否则取上游最新)
+      - name: 确定版本与 L10n 提交(任一更新则发行)
         id: detect
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -e
+          # 1) Git 版本:手动输入优先,否则取上游最新 release(统一去掉 v 前缀)
           if [ -n "${{ inputs.version }}" ]; then
-            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
-            echo "is_new=true" >> "$GITHUB_OUTPUT"
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-            exit 0
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="$(gh api repos/git-for-windows/git/releases/latest --jq .tag_name)"
           fi
+          VERSION="${VERSION#v}"
 
-          LATEST="$(gh api repos/git-for-windows/git/releases/latest --jq .tag_name)"
-          echo "上游最新: $LATEST"
+          # 2) L10n 最新提交(滚动更新,取 master 最新 commit)
+          L10N_SHA="$(gh api repos/jnavila/git-manpages-l10n/commits/master --jq .sha)"
+          L10N_SHA_SHORT="$(echo "$L10N_SHA" | cut -c1-7)"
 
-          # 已发布过的版本:查 git fork 的 releases(含 assets)
-          EXISTS="$(gh api "repos/$GIT_FORK_REPO/releases/tags/${LATEST}-localized-arm64" \
+          # 3) 发行 tag = git 版本 + l10n 提交 sha(本仓库只发 ARM64,
+          #    Git 版本自带 tag(如 v2.55.0.windows.4),后面的短 sha 只可能是
+          #    l10n 的,不会混淆;两者都固定 → 可复现)
+          TAG="v${VERSION}-${L10N_SHA_SHORT}"
+
+          # 4) 已发布过该 tag(git 版本与 l10n 提交都未更新)→ 跳过
+          EXISTS="$(gh api "repos/$GIT_FORK_REPO/releases/tags/$TAG" \
               --jq '.assets[]?.name' 2>/dev/null | grep -c '^Git-.*-arm64\.exe$' || true)"
           if [ "$EXISTS" -ge 1 ]; then
-            echo "已构建过 $LATEST,跳过"
-            echo "version=$LATEST" >> "$GITHUB_OUTPUT"
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "is_new=false" >> "$GITHUB_OUTPUT"
+            echo "git=$VERSION l10n=$L10N_SHA_SHORT 均未更新(已有 $TAG),跳过"
+            SKIP=true
           else
-            echo "发现新版本 $LATEST"
-            echo "version=$LATEST" >> "$GITHUB_OUTPUT"
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-            echo "is_new=true" >> "$GITHUB_OUTPUT"
+            echo "将构建 $TAG(git=$VERSION l10n=$L10N_SHA_SHORT)"
+            SKIP=false
           fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "l10n_sha=$L10N_SHA" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "skip=$SKIP" >> "$GITHUB_OUTPUT"
 
   # ---------------------------------------------------------------------------
   # 2) 构建本地化安装程序
@@ -81,8 +90,11 @@ jobs:
     timeout-minutes: 240
     outputs:
       version: ${{ needs.detect.outputs.version }}
+      tag: ${{ needs.detect.outputs.tag }}
+      l10n_sha: ${{ needs.detect.outputs.l10n_sha }}
     env:
       VERSION: ${{ needs.detect.outputs.version }}
+      L10N_SHA: ${{ needs.detect.outputs.l10n_sha }}
     steps:
       - name: 检出 build-extra(本地化分支)
         uses: actions/checkout@v4
@@ -104,14 +116,12 @@ jobs:
           git clone --depth 1 --branch "v$VERSION" https://github.com/git-for-windows/git work/git
           echo "git 源码就绪: v$VERSION"
 
-      - name: 检出 git-manpages-l10n(版本对齐)
-        shell: bash
-        run: |
-          L10N_VER="$(echo "$VERSION" | sed 's/\.windows\.[0-9]*//')"
-          git clone --depth 1 https://github.com/jnavila/git-manpages-l10n work/git-manpages-l10n
-          cd work/git-manpages-l10n
-          git checkout "$L10N_VER" 2>/dev/null || echo "l10n tag $L10N_VER 不存在,用默认分支"
-          echo "l10n 就绪: $L10N_VER"
+      - name: 检出 git-manpages-l10n(固定提交,可复现)
+        uses: actions/checkout@v4
+        with:
+          repository: jnavila/git-manpages-l10n
+          ref: ${{ needs.detect.outputs.l10n_sha }}
+          path: work/git-manpages-l10n
 
       - name: 运行本地化构建脚本(在 SDK 的 CLANGARM64 bash 内)
         shell: bash
@@ -152,6 +162,7 @@ jobs:
     if: needs.build.result == 'success'
     env:
       VERSION: ${{ needs.build.outputs.version }}
+      TAG: ${{ needs.build.outputs.tag }}
     steps:
       - name: 下载安装程序
         uses: actions/download-artifact@v4
@@ -168,7 +179,6 @@ jobs:
             echo "::warning::未配置 LOCALIZED_RELEASE_TOKEN,跳过发布"
             exit 0
           fi
-          TAG="v${VERSION}-localized-arm64"
           EXE="$(ls dist/Git-*-arm64.exe | head -1)"
           echo "发布 $TAG ← $EXE"
           # 覆盖旧发布:同名 tag/release 可能已存在(本地手动或上次 CI 发布过),
