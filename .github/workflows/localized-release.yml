@@ -20,6 +20,11 @@ on:
         description: 'Git for Windows version (e.g. 2.55.0.windows.3); leave empty for latest upstream'
         required: false
         type: string
+      force:
+        description: 'Force a rebuild+re-publish even if the tag was already released'
+        required: false
+        type: boolean
+        default: false
   schedule:
     - cron: '30 4 * * *'   # run once daily at 04:30 UTC
 
@@ -64,10 +69,12 @@ jobs:
           #    the l10n one, no ambiguity; both are pinned -> reproducible)
           TAG="v${VERSION}-${L10N_SHA_SHORT}"
 
-          # 4) If this tag was already released (git version AND l10n commit unchanged) -> skip
+          # 4) If this tag was already released (git version AND l10n commit unchanged) -> skip,
+          #    unless the run was force-triggered (manual `force=true` -> rebuild+republish)
+          FORCE="${{ inputs.force }}"
           EXISTS="$(gh api "repos/$GIT_FORK_REPO/releases/tags/$TAG" \
               --jq '.assets[]?.name' 2>/dev/null | grep -c '^Git-.*-arm64\.exe$' || true)"
-          if [ "$EXISTS" -ge 1 ]; then
+          if [ "$EXISTS" -ge 1 ] && [ "$FORCE" != "true" ]; then
             echo "git=$VERSION l10n=$L10N_SHA_SHORT unchanged (already released as $TAG), skipping"
             SKIP=true
           else
