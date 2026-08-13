@@ -67,7 +67,10 @@ install_deps () {
 		# clangarm64 python's site-packages (local MSYS python ships polib; CI has no MSYS
 		# python, so it uses clangarm64 python and polib must be provided).
 		if test -f "$BUILD_EXTRA/ci/vendor/polib.py"; then
-			SP=/clangarm64/lib/python3.14/site-packages
+			# Resolve the site-packages dir dynamically (the python version, e.g. 3.14,
+			# changes across SDK updates; fall back to the current layout if detection fails)
+			SP="$(/clangarm64/bin/python.exe -c 'import site; print(site.getsitepackages()[0])' 2>/dev/null)"
+			test -n "$SP" || SP=/clangarm64/lib/python3.14/site-packages
 			mkdir -p "$SP"
 			cp "$BUILD_EXTRA/ci/vendor/polib.py" "$SP/polib.py" 2>/dev/null || true
 			/clangarm64/bin/python.exe -c 'import polib' >/dev/null 2>&1 ||
@@ -86,15 +89,25 @@ install_deps () {
 		# Under /var/cache/l10n-deps (not $HOME) so the CI workflow can cache it (actions/cache)
 		PKG_DIR=/var/cache/l10n-deps/pkg
 		mkdir -p "$PKG_DIR"
-		for f in \
-			perl-YAML-Tiny-1.76-1-any \
-			perl-Text-WrapI18N-0.06-2-any \
-			perl-Unicode-LineBreak-2019.001-8-x86_64; do
-			test -f "$PKG_DIR/$f.pkg.tar.zst" ||
-				curl -skL --connect-timeout 30 \
-					-o "$PKG_DIR/$f.pkg.tar.zst" \
-					"$MSYS2_MIRROR/$f.pkg.tar.zst"
-		done
+		# Try the pinned (reproducible) version first; if the SDK/upstream drifted and the
+		# mirror dropped it, fall back to the newest matching package listed on the mirror.
+		dl_pkg () { # $1 = pinned basename, $2 = package prefix for the newest-match fallback
+			local base="$1" prefix="$2" newest
+			test -f "$PKG_DIR/$base.pkg.tar.zst" && return 0
+			curl -skL --connect-timeout 30 -o "$PKG_DIR/$base.pkg.tar.zst" \
+				"$MSYS2_MIRROR/$base.pkg.tar.zst" && return 0
+			rm -f "$PKG_DIR/$base.pkg.tar.zst"
+			echo "WARN: $base missing on mirror, falling back to newest $prefix" >&2
+			newest="$(curl -skL --connect-timeout 30 "$MSYS2_MIRROR/" |
+				grep -oE "$prefix-[0-9][^-]*-[0-9]*-[^-]*\.pkg\.tar\.zst" |
+				sort -V | tail -1)"
+			test -n "$newest" &&
+				curl -skL --connect-timeout 30 -o "$PKG_DIR/$newest" "$MSYS2_MIRROR/$newest" ||
+				echo "WARN: no $prefix package found on $MSYS2_MIRROR" >&2
+		}
+		dl_pkg perl-YAML-Tiny-1.76-1-any perl-YAML-Tiny
+		dl_pkg perl-Text-WrapI18N-0.06-2-any perl-Text-WrapI18N
+		dl_pkg perl-Unicode-LineBreak-2019.001-8-x86_64 perl-Unicode-LineBreak
 		pacman -U --noconfirm "$PKG_DIR"/perl-*.pkg.tar.zst || true
 		perl -MYAML::Tiny -e 1 >/dev/null 2>&1 ||
 			echo "WARN: perl-YAML-Tiny still unavailable (po4a may fail)" >&2
@@ -166,10 +179,28 @@ export SOURCE_DATE_EPOCH="$(cd "$GIT_SRC" && git log -1 --format=%ct 2>/dev/null
 GIT_DATE="$(date -u -d "@$SOURCE_DATE_EPOCH" +%Y-%m-%d 2>/dev/null || date -u +%Y-%m-%d)"
 echo "==> reproducible build: SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH GIT_DATE=$GIT_DATE"
 
-# -----------------------------------------------------------------------------
-# 2. Build git sources (includes all translated git.mo for git core; language count grows with git's po/)
-# -----------------------------------------------------------------------------
-echo "==> building git ..."
+	# ---- Toolchain snapshot (printed for diagnostics; also saved to dist/sdk-info.txt at the
+	#      end so every release records which SDK/toolchain it was built with) ----
+	has_cmd () { command -v "$1" >/dev/null 2>&1 || command -v "$1.exe" >/dev/null 2>&1; }
+	toolchain_snapshot () {
+		{
+			echo "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH"
+			echo "git version: $("$GIT" --version 2>/dev/null)"
+			has_cmd clang && echo "clang: $(clang --version 2>/dev/null | head -1)"
+			has_cmd gcc && echo "gcc: $(gcc --version 2>/dev/null | head -1)"
+			has_cmd perl && echo "perl: $(perl -e 'print $^V' 2>/dev/null)"
+			has_cmd python3 && echo "python3: $(python3 --version 2>/dev/null)"
+			has_cmd ruby && echo "ruby: $(ruby --version 2>/dev/null)"
+			has_cmd asciidoctor && echo "asciidoctor: $(asciidoctor --version 2>/dev/null | head -1)"
+			has_cmd msgmerge && echo "gettext: $(msgmerge --version 2>/dev/null | head -1)"
+			has_cmd make && echo "make: $(make --version 2>/dev/null | head -1)"
+			has_cmd pacman && echo "pacman: $(pacman --version 2>/dev/null | tr '\r' ' ' | grep -m1 -oE 'Pacman v[0-9.]+')"
+			test -f /etc/os-release &&
+				echo "sdk: $(grep -E '^(PRETTY_NAME|VERSION)=' /etc/os-release | tr '\n' '; ')"
+		}
+	}
+	echo "==> toolchain snapshot:"
+	toolchain_snapshot
 cd "$GIT_SRC"
 # The version was already checked out by the workflow at v$VERSION; no need to re-checkout
 # Rust handling (use NO_RUST, matching official i686; functionally equivalent, varint etc. replaced by C):
@@ -205,8 +236,11 @@ export PYTHONUTF8=1
 install_deps
 
 export GEM_HOME="$HOME/gems"
-export GEM_PATH="$HOME/gems:/clangarm64/lib/ruby/gems/4.0.0"
-
+	# Resolve the SDK's system gem dir dynamically (the ruby version, e.g. 4.0.0,
+	# changes across SDK updates; fall back to the current layout if detection fails)
+	GEM_SYSDIR="$(gem env gempath 2>/dev/null | cut -d: -f1)"
+	test -n "$GEM_SYSDIR" || GEM_SYSDIR=/clangarm64/lib/ruby/gems/4.0.0
+	export GEM_PATH="$HOME/gems:$GEM_SYSDIR"
 # Rendering man pages with asciidoctor needs asciidoctor-extensions.rb (makefile.locale loads
 # it via `-rasciidoctor-extensions -I..` from the l10n root). git 2.55 only commits the
 # asciidoctor-extensions.rb.in template; replace @GIT_VERSION@/@GIT_DATE@ to generate it
@@ -338,4 +372,6 @@ cd "$BUILD_EXTRA/installer"    # the checksum above ran in a subshell; return to
 echo "==> done"
 ls -lh "$WORKDIR_WIN"/dist/Git-"$VERSION"-arm64.exe
 # Compute and print SHA256 (reproducibility check; the workflow can reference it)
-(cd "$WORKDIR_WIN/dist" && sha256sum Git-*.exe | tee "Git-$VERSION-arm64.exe.sha256") 2>/dev/null || true
+(cd "$WORKDIR_WIN/dist" && sha256sum Git-*.exe | tee "Git-$VERSION-arm64.exe.sha256") 2>/dev/null || true	# Save the toolchain snapshot with the artifacts (uploaded alongside the .sha256 file; the
+	# workflow publishes it in the release notes so each release records its build environment)
+	toolchain_snapshot | tee "$WORKDIR_WIN/dist/sdk-info.txt"
