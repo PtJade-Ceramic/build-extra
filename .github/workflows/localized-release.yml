@@ -110,10 +110,18 @@ jobs:
           flavor: build-installers
           architecture: aarch64
 
+      - name: Cache localized toolchain (po4a + perl deps; seeded on first run)
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.setup-sdk.outputs.result }}/var/cache/l10n-deps
+          key: l10n-deps-v1
+
       - name: Checkout git sources (matching tag)
         shell: bash
         run: |
-          git clone --depth 1 --branch "v$VERSION" https://github.com/git-for-windows/git work/git
+          # -c core.autocrlf=false keeps LF: the git sources contain shell scripts that would
+          # break if checked out with CRLF (also keeps the build reproducible)
+          git -c core.autocrlf=false clone --depth 1 --branch "v$VERSION" https://github.com/git-for-windows/git work/git
           echo "git sources ready: v$VERSION"
 
       - name: Checkout git-manpages-l10n (pinned commit, reproducible)
@@ -122,6 +130,7 @@ jobs:
           repository: jnavila/git-manpages-l10n
           ref: ${{ needs.detect.outputs.l10n_sha }}
           path: work/git-manpages-l10n
+          autocrlf: false
 
       - name: Run the localized build script (inside the SDK's CLANGARM64 bash)
         shell: bash
@@ -135,7 +144,7 @@ jobs:
           *) SDK_BASH="$SDK_MSYS/usr/bin/bash.exe";;
           esac
           WORK_WIN="$(cygpath -w "$GITHUB_WORKSPACE/work")"
-          # Convert to an MSYS path for the SDK bash, e.g. /c/a/build-extra/build-extra/work
+          # Convert to an MSYS path for the SDK bash (e.g. /c/a/build-extra/build-extra/work)
           WORK_MSYS="/$(echo "$WORK_WIN" | sed 's/\\/\//g; s/^\([A-Za-z]\):/\L\1/')"
           echo "SDK=$SDK_MSYS"
           echo "SDK_BASH=$SDK_BASH"
@@ -151,6 +160,7 @@ jobs:
           name: Git-${{ env.VERSION }}-arm64
           path: |
             work/dist/Git-*-arm64.exe
+            work/dist/Git-*-arm64.exe.sha256
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
@@ -180,7 +190,13 @@ jobs:
             exit 0
           fi
           EXE="$(ls dist/Git-*-arm64.exe | head -1)"
+          SHA_FILE="$(ls dist/Git-*-arm64.exe.sha256 2>/dev/null | head -1)"
+          SHA="$(sha256sum "$EXE" | awk '{print $1}')"
           echo "Publishing $TAG <- $EXE"
+          echo "SHA-256: $SHA"
+          test -n "$SHA_FILE" && echo "Checksum asset: ${SHA_FILE#dist/}"
+          ASSETS=("$EXE")
+          test -n "$SHA_FILE" && ASSETS+=("$SHA_FILE")
           # Overwrite previous release: the same tag/release may already exist (manual or from an earlier CI run),
           # so delete the release and tag first, then recreate, to keep the artifact up to date.
           gh release delete "$TAG" --repo "$GIT_FORK_REPO" --yes 2>/dev/null || true
@@ -188,13 +204,18 @@ jobs:
           gh release create "$TAG" \
             --repo "$GIT_FORK_REPO" \
             --title "Git for Windows ${VERSION} ARM64 - Localized (CI)" \
-            --notes "$(cat <<'EOF'
+            --notes "$(cat <<EOF
           Built automatically by GitHub Actions.
           Localized content: git core messages, man pages and HTML docs (all translated languages), plus a full man toolchain.
           Details: https://github.com/PtJade-Ceramic/build-extra/blob/localization/all-languages/README.localization.md
           Usage:
           - Chinese man pages in terminal: git config --global help.format man
           - Chinese HTML docs: git config --global help.htmlpath C:/Program Files/Git/clangarm64/share/doc/git-doc/zh_CN
+
+          SHA-256 checksum:
+          ```
+          $SHA  ${EXE#dist/}
+          ```
           EOF
           )" \
-            "$EXE" || { echo "Publish failed (tag may already exist)"; exit 1; }
+            "${ASSETS[@]}" || { echo "Publish failed (tag may already exist)"; exit 1; }
