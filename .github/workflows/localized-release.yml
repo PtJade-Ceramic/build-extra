@@ -168,6 +168,7 @@ jobs:
           path: |
             work/dist/Git-*-arm64.exe
             work/dist/Git-*-arm64.exe.sha256
+            work/dist/sdk-info.txt
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
@@ -204,6 +205,18 @@ jobs:
           test -n "$SHA_FILE" && echo "Checksum asset: ${SHA_FILE#dist/}"
           ASSETS=("$EXE")
           test -n "$SHA_FILE" && ASSETS+=("$SHA_FILE")
+          # Toolchain snapshot -> release notes (records which SDK the artifact was built with)
+          SDK_INFO="$(cat dist/sdk-info.txt 2>/dev/null || true)"
+          if [ -n "$SDK_INFO" ]; then
+            SDK_INFO_BLOCK="
+
+          Build environment:
+          \`\`\`
+          $SDK_INFO
+          \`\`\`"
+          else
+            SDK_INFO_BLOCK=""
+          fi
           # Overwrite previous release: the same tag/release may already exist (manual or from an earlier CI run),
           # so delete the release and tag first, then recreate, to keep the artifact up to date.
           gh release delete "$TAG" --repo "$GIT_FORK_REPO" --yes 2>/dev/null || true
@@ -222,7 +235,7 @@ jobs:
           SHA-256 checksum:
           ```
           $SHA  ${EXE#dist/}
-          ```
+          ```${SDK_INFO_BLOCK}
           EOF
           )" \
             "${ASSETS[@]}" || { echo "Publish failed (tag may already exist)"; exit 1; }
