@@ -122,6 +122,18 @@ pacman_list () {
 	else
 		grep -v '^mingw64/'
 	fi
+	# Dynamically include all translated man pages and HTML docs from the SDK:
+	# new languages are picked up automatically, without maintaining the
+	# language-directory part of keep-despite (top-level English manN are
+	# already listed statically; the trailing sort|uniq dedupes, harmless
+	# overlap with keep-despite).
+	if test -d "/$MSYSTEM_LOWER/share/man" || test -d "/$MSYSTEM_LOWER/share/doc/git-doc"
+	then
+		find "/$MSYSTEM_LOWER/share/man" -mindepth 2 -type f \
+			! -path '*/share/man/man[0-9n]/*' 2>/dev/null
+		find "/$MSYSTEM_LOWER/share/doc/git-doc" -mindepth 2 \
+			-type f -name '*.html' 2>/dev/null
+	fi
 
 	package_list=$(for arg
 		do
@@ -207,7 +219,7 @@ mingw-w64-$PACMAN_ARCH-git-extra openssh msys2-runtime $UTIL_PACKAGES $LIBCURL_E
 if test -z "$MINIMAL_GIT"
 then
 	packages="$packages mingw-w64-$PACMAN_ARCH-git-doc-html ncurses mintty vim nano
-		winpty less gnupg tar diffutils patch dos2unix which subversion perl-JSON
+		winpty less man-db groff gcc-libs gnupg tar diffutils patch dos2unix which subversion perl-JSON
 		mingw-w64-$PACMAN_ARCH-tk mingw-w64-$PACMAN_ARCH-connect docx2txt
 		mingw-w64-$PACMAN_ARCH-antiword mingw-w64-$PACMAN_ARCH-odt2txt ssh-pageant
 		mingw-w64-$PACMAN_ARCH-git-lfs mingw-w64-$PACMAN_ARCH-xz tig $GIT_UPDATE_EXTRA_PACKAGES"
@@ -228,7 +240,7 @@ fi
 pacman_list $packages "$@" |
 
 grep -v -e '\.[acho]$' -e '\.l[ao]$' -e '/aclocal/' \
-	-e '/man/' -e '/pkgconfig/' -e '/emacs/' \
+	-e '^/usr/man/' -e '^/usr/.*/man/' -e '/pkgconfig/' -e '/emacs/' \
 	-e '^/usr/lib/python' -e '^/usr/lib/ruby' -e "^/$MSYSTEM_LOWER/lib/python" \
 	-e '^/usr/share/subversion' \
 	-e '^/etc/skel/' -e "^/$MSYSTEM_LOWER/etc/skel/" \
@@ -272,7 +284,7 @@ grep -v -e '\.[acho]$' -e '\.l[ao]$' -e '/aclocal/' \
 	-e "^\\($(echo $EXCLUDE_MISSING_BUILTINS | sed 's/ /\\|/g')\\)\$" \
 	-e "^/$MSYSTEM_LOWER/share/gtk-doc/" \
 	-e "^/$MSYSTEM_LOWER/share/nghttp2/" \
-	-e '^/usr/bin/msys-\(db\|curl\|icu\|gfortran\|stdc++\|quadmath\)[^/]*\.dll$' \
+	-e '^/usr/bin/msys-\(db\|curl\|icu\|gfortran\|quadmath\)[^/]*\.dll$' \
 	-e '^/usr/bin/msys-\('"$I686_EXCLUDE"'fdisk\|gettextpo\|gmpxx\|gnutlsxx\|gomp\|xml2\|xslt\|exslt\)-.*\.dll$' \
 	-e '^/usr/bin/msys-\(hdb\|history8\|kadm5\|kdc\|otp\|sl\).*\.dll$' \
 	-e '^/usr/bin/msys-\(atomic\|blkid\|charset\|gthread\|metalink\|nghttp2\|ssh2\|kafs\)-.*\.dll$' \
@@ -388,7 +400,15 @@ else
 			sed 's/ /\\|/g')\\)\$"
 fi |
 LC_CTYPE=C.UTF-8 grep --perl-regexp -v -e '^/usr/(lib|share)/terminfo/(?!.*/(cygwin|dumb|ms-terminal|screen.*|xterm.*)$)' |
-sed 's/^\///' | sort | uniq
+sed 's/^\///' | sort | uniq |
+# Keep only files that actually exist: `pacman -Ql` lists package-declared
+# files that may be missing (e.g. p11-kit's ar/LC_MESSAGES/p11-kit.mo in the
+# slimmed-down SDK); missing files make Inno Setup fail with "Source file ...
+# does not exist".
+while IFS= read -r f
+do
+	test -e "/$f" && echo "$f"
+done
 
 test -z "$PACKAGE_VERSIONS_FILE" || {
 	pacman -Q filesystem $SH_FOR_REBASE rebase \
