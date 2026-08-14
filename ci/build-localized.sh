@@ -197,8 +197,12 @@ echo "==> reproducible build: SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH GIT_DATE=$GIT
 			if has_cmd pacman; then
 				echo "pacman: $(pacman --version 2>/dev/null | tr '\r' ' ' | grep -m1 -oE 'Pacman v[0-9.]+')"
 			fi
-			# CI build-installers SDK may lack /etc/os-release; guard against set -e aborting
-			if test -f /etc/os-release; then
+			# SDK build version comes from the workflow (git-sdk-arm64 ci-artifacts asset
+			# timestamp); the CI build-installers SDK may lack /etc/os-release, so fall back
+			# to that if SDK_VERSION was not passed.
+			if test -n "${SDK_VERSION:-}"; then
+				echo "sdk: $SDK_VERSION"
+			elif test -f /etc/os-release; then
 				echo "sdk: $(grep -E '^(PRETTY_NAME|VERSION)=' /etc/os-release 2>/dev/null | tr '\n' '; ')"
 			fi
 		}
