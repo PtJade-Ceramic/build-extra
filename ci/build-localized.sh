@@ -67,10 +67,12 @@ install_deps () {
 		# clangarm64 python's site-packages (local MSYS python ships polib; CI has no MSYS
 		# python, so it uses clangarm64 python and polib must be provided).
 		if test -f "$BUILD_EXTRA/ci/vendor/polib.py"; then
-			# Resolve the site-packages dir dynamically (the python version, e.g. 3.14,
-			# changes across SDK updates; fall back to the current layout if detection fails)
-			SP="$(/clangarm64/bin/python.exe -c 'import site; print(site.getsitepackages()[0])' 2>/dev/null)"
-			test -n "$SP" || SP=/clangarm64/lib/python3.14/site-packages
+			# Resolve the site-packages dir as an MSYS path (site.getsitepackages()
+			# returns 'C:/...'; MSYS cp can usually write it, but keep the /clangarm64
+			# form for consistency and to avoid path-conversion differences on CI)
+			PYVER="$(/clangarm64/bin/python.exe -c 'import sys; print("python%d.%d" % sys.version_info[:2])' 2>/dev/null)"
+			test -n "$PYVER" || PYVER=python3.14
+			SP=/clangarm64/lib/$PYVER/site-packages
 			mkdir -p "$SP"
 			cp "$BUILD_EXTRA/ci/vendor/polib.py" "$SP/polib.py" 2>/dev/null || true
 			/clangarm64/bin/python.exe -c 'import polib' >/dev/null 2>&1 ||
@@ -238,9 +240,14 @@ export PYTHONUTF8=1
 install_deps
 
 export GEM_HOME="$HOME/gems"
-	# Resolve the SDK's system gem dir dynamically (the ruby version, e.g. 4.0.0,
-	# changes across SDK updates; fall back to the current layout if detection fails)
-	GEM_SYSDIR="$(gem env gempath 2>/dev/null | cut -d: -f1)"
+	# Resolve the SDK's system gem dir as an MSYS path (no drive letter). 'gem env
+	# gempath' returns Windows-style 'C:/...;...' paths which break GEM_PATH's ':'
+	# separator (ruby's gem glob then fails with Errno::EINVAL, breaking asciidoctor).
+	# Glob the ruby version dir instead (dynamic, keeps the working /clangarm64 form).
+	GEM_SYSDIR=
+	for _d in /clangarm64/lib/ruby/gems/*; do
+		test -d "$_d" && GEM_SYSDIR="$_d" && break
+	done
 	test -n "$GEM_SYSDIR" || GEM_SYSDIR=/clangarm64/lib/ruby/gems/4.0.0
 	export GEM_PATH="$HOME/gems:$GEM_SYSDIR"
 # Rendering man pages with asciidoctor needs asciidoctor-extensions.rb (makefile.locale loads
