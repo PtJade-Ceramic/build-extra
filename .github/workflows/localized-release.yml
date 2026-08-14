@@ -1,0 +1,244 @@
+name: Localized ARM64 release
+
+# =============================================================================
+# Automatically build and release a fully localized ARM64 Git for Windows installer.
+#
+# Triggers:
+#   - manual (workflow_dispatch): optionally specify a version (e.g. 2.55.0.windows.3)
+#   - scheduled (schedule): checks git-for-windows/git daily for a new release,
+#     and builds/releases it automatically if found.
+#
+# Required configuration (Repository Settings -> Secrets and variables -> Actions):
+#   - LOCALIZED_RELEASE_TOKEN: a PAT with contents:write on PtJade-Ceramic/git
+#     (used to publish to the git fork repo). If unset, the publish step is skipped.
+# =============================================================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Git for Windows version (e.g. 2.55.0.windows.3); leave empty for latest upstream'
+        required: false
+        type: string
+      force:
+        description: 'Force a rebuild+re-publish even if the tag was already released'
+        required: false
+        type: boolean
+        default: false
+  schedule:
+    - cron: '30 4 * * *'   # run once daily at 04:30 UTC
+
+env:
+  BUILD_EXTRA_REPO: PtJade-Ceramic/build-extra
+  GIT_FORK_REPO: PtJade-Ceramic/git
+  BUILD_EXTRA_BRANCH: localization/all-languages
+  SDK_ARCH: arm64
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1) Detect the version to build
+  # ---------------------------------------------------------------------------
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.detect.outputs.version }}
+      skip: ${{ steps.detect.outputs.skip }}
+      l10n_sha: ${{ steps.detect.outputs.l10n_sha }}
+      tag: ${{ steps.detect.outputs.tag }}
+    steps:
+      - name: Resolve Git version and L10n commit (release when either changes)
+        id: detect
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          # 1) Git version: manual input takes priority, else latest upstream release (strip v prefix)
+          if [ -n "${{ inputs.version }}" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="$(gh api repos/git-for-windows/git/releases/latest --jq .tag_name)"
+          fi
+          VERSION="${VERSION#v}"
+
+          # 2) Latest L10n commit (rolling; use the newest commit on master)
+          L10N_SHA="$(gh api repos/jnavila/git-manpages-l10n/commits/master --jq .sha)"
+          L10N_SHA_SHORT="$(echo "$L10N_SHA" | cut -c1-7)"
+
+          # 3) Release tag = git version + l10n commit sha (this repo only publishes ARM64;
+          #    the Git version has its own tag (e.g. v2.55.0.windows.4), so the short sha can only be
+          #    the l10n one, no ambiguity; both are pinned -> reproducible)
+          TAG="v${VERSION}-${L10N_SHA_SHORT}"
+
+          # 4) If this tag was already released (git version AND l10n commit unchanged) -> skip,
+          #    unless the run was force-triggered (manual `force=true` -> rebuild+republish)
+          FORCE="${{ inputs.force }}"
+          EXISTS="$(gh api "repos/$GIT_FORK_REPO/releases/tags/$TAG" \
+              --jq '.assets[]?.name' 2>/dev/null | grep -c '^Git-.*-arm64\.exe$' || true)"
+          if [ "$EXISTS" -ge 1 ] && [ "$FORCE" != "true" ]; then
+            echo "git=$VERSION l10n=$L10N_SHA_SHORT unchanged (already released as $TAG), skipping"
+            SKIP=true
+          else
+            echo "Will build $TAG (git=$VERSION l10n=$L10N_SHA_SHORT)"
+            SKIP=false
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "l10n_sha=$L10N_SHA" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "skip=$SKIP" >> "$GITHUB_OUTPUT"
+
+  # ---------------------------------------------------------------------------
+  # 2) Build the localized installer
+  # ---------------------------------------------------------------------------
+  build:
+    needs: detect
+    if: needs.detect.outputs.skip == 'false'
+    runs-on: windows-11-arm
+    timeout-minutes: 240
+    outputs:
+      version: ${{ needs.detect.outputs.version }}
+      tag: ${{ needs.detect.outputs.tag }}
+      l10n_sha: ${{ needs.detect.outputs.l10n_sha }}
+    env:
+      VERSION: ${{ needs.detect.outputs.version }}
+      L10N_SHA: ${{ needs.detect.outputs.l10n_sha }}
+    steps:
+      - name: Checkout build-extra (localization branch)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.BUILD_EXTRA_REPO }}
+          ref: ${{ env.BUILD_EXTRA_BRANCH }}
+          path: work/build-extra
+
+      - name: Set up Git for Windows SDK (ARM64 build-installers)
+        id: setup-sdk
+        uses: git-for-windows/setup-git-for-windows-sdk@v2
+        with:
+          flavor: build-installers
+          architecture: aarch64
+
+      - name: Cache localized toolchain (po4a + perl deps; seeded on first run)
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.setup-sdk.outputs.result }}/var/cache/l10n-deps
+          key: l10n-deps-v1
+
+      - name: Checkout git sources (matching tag)
+        shell: bash
+        run: |
+          # -c core.autocrlf=false keeps LF: the git sources contain shell scripts that would
+          # break if checked out with CRLF (also keeps the build reproducible)
+          git -c core.autocrlf=false clone --depth 1 --branch "v$VERSION" https://github.com/git-for-windows/git work/git
+          echo "git sources ready: v$VERSION"
+
+      - name: Checkout git-manpages-l10n (pinned commit, reproducible)
+        uses: actions/checkout@v4
+        with:
+          repository: jnavila/git-manpages-l10n
+          ref: ${{ needs.detect.outputs.l10n_sha }}
+          path: work/git-manpages-l10n
+
+      - name: Run the localized build script (inside the SDK's CLANGARM64 bash)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          # SDK root comes from the official setup action output (Windows path)
+          SDK_WIN="${{ steps.setup-sdk.outputs.result }}"
+          SDK_MSYS="$(cygpath -u "$SDK_WIN")"
+          # SDK root may be / (i.e. the SDK is the current root); avoid // becoming a UNC path
+          case "$SDK_MSYS" in
+          /) SDK_BASH=/usr/bin/bash.exe;;
+          *) SDK_BASH="$SDK_MSYS/usr/bin/bash.exe";;
+          esac
+          WORK_WIN="$(cygpath -w "$GITHUB_WORKSPACE/work")"
+          # Convert to an MSYS path for the SDK bash (e.g. /c/a/build-extra/build-extra/work)
+          WORK_MSYS="/$(echo "$WORK_WIN" | sed 's/\\/\//g; s/^\([A-Za-z]\):/\L\1/')"
+          # Resolve the SDK build version (git-sdk-arm64 ci-artifacts asset timestamp) for the snapshot
+          SDK_VERSION="$(gh api repos/git-for-windows/git-sdk-arm64/releases/tags/ci-artifacts \
+              --jq '.assets[] | select(.name=="git-sdk-aarch64-build-installers.tar.zst") | .updated_at' 2>/dev/null || true)"
+          echo "SDK=$SDK_MSYS"
+          echo "SDK_BASH=$SDK_BASH"
+          echo "WORK_MSYS=$WORK_MSYS"
+          echo "SDK_VERSION=$SDK_VERSION"
+          MSYSTEM=CLANGARM64 \
+            "$SDK_BASH" --login -c \
+              "cd '$WORK_MSYS' && SDK_VERSION='$SDK_VERSION' build-extra/ci/build-localized.sh '$VERSION' '$WORK_MSYS'" \
+            || { echo "Build failed"; exit 1; }
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Git-${{ env.VERSION }}-arm64
+          path: |
+            work/dist/Git-*-arm64.exe
+            work/dist/Git-*-arm64.exe.sha256
+            work/dist/sdk-info.txt
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # 3) Publish to the git fork's Release
+  # ---------------------------------------------------------------------------
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    if: needs.build.result == 'success'
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+      TAG: ${{ needs.build.outputs.tag }}
+    steps:
+      - name: Download installer
+        uses: actions/download-artifact@v4
+        with:
+          name: Git-${{ needs.build.outputs.version }}-arm64
+          path: dist
+
+      - name: Publish to PtJade-Ceramic/git
+        env:
+          GH_TOKEN: ${{ secrets.LOCALIZED_RELEASE_TOKEN }}
+        shell: bash
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::warning::LOCALIZED_RELEASE_TOKEN not configured, skipping publish"
+            exit 0
+          fi
+          EXE="$(ls dist/Git-*-arm64.exe | head -1)"
+          SHA_FILE="$(ls dist/Git-*-arm64.exe.sha256 2>/dev/null | head -1)"
+          SHA="$(sha256sum "$EXE" | awk '{print $1}')"
+          echo "Publishing $TAG <- $EXE"
+          echo "SHA-256: $SHA"
+          test -n "$SHA_FILE" && echo "Checksum asset: ${SHA_FILE#dist/}"
+          ASSETS=("$EXE")
+          test -n "$SHA_FILE" && ASSETS+=("$SHA_FILE")
+          # Toolchain snapshot -> release notes (records which SDK the artifact was built with)
+          SDK_INFO="$(cat dist/sdk-info.txt 2>/dev/null || true)"
+          if [ -n "$SDK_INFO" ]; then
+            SDK_INFO_BLOCK="
+
+          Build environment:
+          \`\`\`
+          $SDK_INFO
+          \`\`\`"
+          else
+            SDK_INFO_BLOCK=""
+          fi
+          # Overwrite previous release: the same tag/release may already exist (manual or from an earlier CI run),
+          # so delete the release and tag first, then recreate, to keep the artifact up to date.
+          gh release delete "$TAG" --repo "$GIT_FORK_REPO" --yes 2>/dev/null || true
+          gh api -X DELETE "/repos/$GIT_FORK_REPO/git/refs/tags/$TAG" 2>/dev/null || true
+          gh release create "$TAG" \
+            --repo "$GIT_FORK_REPO" \
+            --title "Git for Windows ${VERSION} ARM64 - Localized (CI)" \
+            --notes "$(cat <<EOF
+          Built automatically by GitHub Actions.
+          Localized content: git core messages, man pages and HTML docs (all translated languages), plus a full man toolchain.
+          Details: [build-extra README.localization.md](https://github.com/PtJade-Ceramic/build-extra/blob/localization/all-languages/README.localization.md)
+          Usage (install path uses %ProgramFiles%\Git):
+          - Localized man pages in terminal: \`git config --global help.format man\`
+          - Localized HTML docs: \`git config --global help.htmlpath %ProgramFiles%/Git/clangarm64/share/doc/git-doc/<lang>\`
+          - Language directory naming: see [git-manpages-l10n README](https://github.com/jnavila/git-manpages-l10n/blob/master/README.md)
+
+          ${SDK_INFO_BLOCK}
+          EOF
+          )" \
+            "${ASSETS[@]}" || { echo "Publish failed (tag may already exist)"; exit 1; }
