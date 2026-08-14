@@ -353,22 +353,40 @@ jobs:
   signing:
     name: signing (timestamped signatures differ)
     needs: artifact-repro
-    if: inputs.run_signing == 'true' && secrets.AZURE_CLIENT_ID != ''
+    # Note: secrets cannot be referenced in job-level if conditions, so the
+    # job always starts when requested and the steps below gate on the env
+    # copies of the Azure signing secrets.
+    if: inputs.run_signing == 'true'
     runs-on: windows-latest
+    env:
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_SIGNING_OPTS: ${{ secrets.AZURE_SIGNING_OPTS }}
     steps:
+      - name: Skip when signing secrets are not configured
+        if: env.AZURE_CLIENT_ID == ''
+        shell: bash
+        run: |
+          echo "Azure signing secrets are not configured in this repository;"
+          echo "skipping the signing experiment (RFC 3161 timestamped"
+          echo "signatures are expected to differ between runs by design)."
+
       - name: Download dist1
+        if: env.AZURE_CLIENT_ID != ''
         uses: actions/download-artifact@v4
         with:
           name: dist-${{ inputs.architecture }}
           path: dist1
 
       - name: Checkout automation (for azure-signtool.sh)
+        if: env.AZURE_CLIENT_ID != ''
         uses: actions/checkout@v4
         with:
           repository: git-for-windows/git-for-windows-automation
           path: automation
 
       - name: Azure login (OIDC)
+        if: env.AZURE_CLIENT_ID != ''
         uses: azure/login@v3
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -376,8 +394,7 @@ jobs:
           allow-no-subscriptions: true
 
       - name: Sign the same installer twice and compare
-        env:
-          AZURE_SIGNING_OPTS: ${{ secrets.AZURE_SIGNING_OPTS }}
+        if: env.AZURE_CLIENT_ID != ''
         shell: bash
         run: |
           set -e
