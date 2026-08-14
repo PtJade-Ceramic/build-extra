@@ -145,8 +145,10 @@ jobs:
                 git -C /usr/src/build-extra fetch origin $2
                 git -C /usr/src/build-extra switch -C $2 FETCH_HEAD
               fi
-              cd /usr/src/build-extra
-              ./please.sh build-mingw-w64-git --reset-pkgrel $3 -o "$4" HEAD
+              # build-mingw-w64-git resolves the release tag relative to the
+              # current repository, so it must run from the git sources.
+              cd /usr/src/MINGW-packages/mingw-w64-git/src/git
+              /usr/src/build-extra/please.sh build-mingw-w64-git --reset-pkgrel $3 -o "$4" HEAD
             ' bash "${{ env.BUILD_EXTRA_REPO }}" "${{ env.BUILD_EXTRA_BRANCH }}" "$MINGW_ARCH_FLAG" "$(cygpath -u "$GITHUB_WORKSPACE")/pkg1"
 
       - name: Build mingw-w64-git (run 2, clean rebuild)
@@ -164,8 +166,10 @@ jobs:
               git clean -xdf
               cd /usr/src/MINGW-packages/mingw-w64-git
               rm -rf pkg
-              cd /usr/src/build-extra
-              ./please.sh build-mingw-w64-git --reset-pkgrel $1 -o "$2" HEAD
+              # build-mingw-w64-git resolves the release tag relative to the
+              # current repository, so it must run from the git sources.
+              cd /usr/src/MINGW-packages/mingw-w64-git/src/git
+              /usr/src/build-extra/please.sh build-mingw-w64-git --reset-pkgrel $1 -o "$2" HEAD
             ' bash "$MINGW_ARCH_FLAG" "$(cygpath -u "$GITHUB_WORKSPACE")/pkg2"
 
       - name: Compare pkg1 vs pkg2
