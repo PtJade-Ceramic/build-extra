@@ -228,8 +228,8 @@ jobs:
           Localized content: git core messages, man pages and HTML docs (all translated languages), plus a full man toolchain.
           Details: https://github.com/PtJade-Ceramic/build-extra/blob/localization/all-languages/README.localization.md
           Usage (install path uses %ProgramFiles%\Git):
-          - Localized man pages in terminal: `git config --global help.format man`
-          - Localized HTML docs: `git config --global help.htmlpath %ProgramFiles%/Git/clangarm64/share/doc/git-doc/<lang>`
+          - Localized man pages in terminal: \`git config --global help.format man\`
+          - Localized HTML docs: \`git config --global help.htmlpath %ProgramFiles%/Git/clangarm64/share/doc/git-doc/<lang>\`
           - Language directory naming: see [git-manpages-l10n README](https://github.com/jnavila/git-manpages-l10n/blob/master/README.md)
 
           ${SDK_INFO_BLOCK}
