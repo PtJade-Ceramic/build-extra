@@ -112,19 +112,14 @@ install_deps () {
 		perl -MYAML::Tiny -e 1 >/dev/null 2>&1 ||
 			echo "WARN: perl-YAML-Tiny still unavailable (po4a may fail)" >&2
 	fi
-	# po4a (vendored to the git-manpages-l10n repo root; the clone is cached under
-	# /var/cache/l10n-deps so CI does not re-clone it on every build)
-	PO4A_CACHE=/var/cache/l10n-deps/po4a
+	# po4a (vendored to the git-manpages-l10n repo root). It is NOT cached: the
+	# actions/cache round-trip can corrupt its layout (symlinks/perl module tree),
+	# which made the l10n man build fail on specific languages (e.g. de). It is
+	# tiny, so a clean clone on every build is cheap and deterministic.
 	if test ! -x "$L10N_SRC/po4a/po4a"; then
-		if test ! -x "$PO4A_CACHE/po4a"; then
-			mkdir -p /var/cache/l10n-deps 2>/dev/null || true
-			"$GIT" clone --depth 1 --branch v0.74 \
-				https://github.com/mquinson/po4a "$PO4A_CACHE" 2>/dev/null || true
-		fi
-		test -x "$PO4A_CACHE/po4a" &&
-			cp -r "$PO4A_CACHE" "$L10N_SRC/po4a" 2>/dev/null || true
-		test -x "$L10N_SRC/po4a/po4a" ||
-			echo "WARN: po4a unavailable (cache miss and clone failed)" >&2
+		"$GIT" clone --depth 1 --branch v0.74 \
+			https://github.com/mquinson/po4a "$L10N_SRC/po4a" 2>/dev/null ||
+			echo "WARN: po4a clone failed" >&2
 	fi
 	# Patch: Po.pm concatenates the unescaped $reference into a regex for dedup;
 	# perl 5.42 aborts on \p/\l/\m escape sequences ("Can't find Unicode property definition").
@@ -261,14 +256,10 @@ elif test -f "$GIT_SRC/Documentation/asciidoctor-extensions.rb"; then
 	cp "$GIT_SRC/Documentation/asciidoctor-extensions.rb" \
 		"$L10N_SRC/asciidoctor-extensions.rb" 2>/dev/null || true
 fi
-# po4a is not thread-safe under the full -j$(nproc) parallelism (28 languages, many
-# docs each); an occasional make failure on a specific language (e.g. de/es) is a
-# parallel race. Cap the parallelism to keep the man/html build deterministic.
-JOBS=2
-make -j"$JOBS" man || die "l10n man build failed"
+make -j"$(nproc)" man || die "l10n man build failed"
 make install-man mandir=/clangarm64/share/man || die "l10n man install failed"
 
-make -j"$JOBS" html || die "l10n html build failed"
+make -j"$(nproc)" html || die "l10n html build failed"
 make install-html prefix=/clangarm64/share/doc/git-doc || die "l10n html install failed"
 
 # Simplified/Traditional Chinese mapping (man-db and help.htmlpath need zh_CN/zh_TW directories)
