@@ -261,10 +261,14 @@ elif test -f "$GIT_SRC/Documentation/asciidoctor-extensions.rb"; then
 	cp "$GIT_SRC/Documentation/asciidoctor-extensions.rb" \
 		"$L10N_SRC/asciidoctor-extensions.rb" 2>/dev/null || true
 fi
-make -j"$(nproc)" man || die "l10n man build failed"
+# po4a is not thread-safe under the full -j$(nproc) parallelism (28 languages, many
+# docs each); an occasional make failure on a specific language (e.g. de/es) is a
+# parallel race. Cap the parallelism to keep the man/html build deterministic.
+JOBS=2
+make -j"$JOBS" man || die "l10n man build failed"
 make install-man mandir=/clangarm64/share/man || die "l10n man install failed"
 
-make -j"$(nproc)" html || die "l10n html build failed"
+make -j"$JOBS" html || die "l10n html build failed"
 make install-html prefix=/clangarm64/share/doc/git-doc || die "l10n html install failed"
 
 # Simplified/Traditional Chinese mapping (man-db and help.htmlpath need zh_CN/zh_TW directories)
