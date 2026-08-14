@@ -1,0 +1,396 @@
+name: Reproducible build verification
+
+# =============================================================================
+# Verify that building a Git for Windows release twice, on the same SDK
+# snapshot, yields byte-identical artifacts when SOURCE_DATE_EPOCH is set.
+#
+# This workflow is part of the reproducible-builds effort (see branch
+# reproducible-builds/verify) and is intended to be temporary; the release.sh
+# changes it exercises are meant to be contributed upstream.
+#
+# Jobs:
+#   pkg-repro       build the mingw-w64-git package twice via makepkg and
+#                   compare every member (compile determinism)
+#   artifact-repro  build installer/portable/mingit/archive twice via the
+#                   release.sh scripts and compare the outputs (packaging
+#                   determinism; installer and portable are NOT signed here)
+#   signing         optional: sign the same installer twice to confirm that
+#                   timestamped code signing prevents byte-identical output
+#                   (needs Azure signing secrets configured in this repo)
+# =============================================================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Git for Windows version (e.g. 2.55.0.windows.3); empty = latest upstream'
+        required: false
+        type: string
+      architecture:
+        description: 'Architecture to verify'
+        required: true
+        type: choice
+        default: x86_64
+        options:
+          - x86_64
+          - aarch64
+      baseline:
+        description: 'Also build once without SOURCE_DATE_EPOCH (expect a difference)'
+        required: false
+        type: boolean
+        default: false
+      run_signing:
+        description: 'Run the signing experiment (requires Azure signing secrets)'
+        required: false
+        type: boolean
+        default: false
+
+env:
+  BUILD_EXTRA_REPO: PtJade-Ceramic/build-extra
+  BUILD_EXTRA_BRANCH: reproducible-builds/verify
+
+jobs:
+  pkg-repro:
+    name: pkg-repro (compile determinism)
+    runs-on: ${{ inputs.architecture == 'aarch64' && 'windows-11-arm' || 'windows-latest' }}
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      sde: ${{ steps.resolve.outputs.sde }}
+    steps:
+      - name: Checkout build-extra (verify branch)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.BUILD_EXTRA_REPO }}
+          ref: ${{ env.BUILD_EXTRA_BRANCH }}
+          path: work/build-extra
+
+      - name: Set up Git for Windows SDK (build-installers)
+        id: setup-sdk
+        uses: git-for-windows/setup-git-for-windows-sdk@v2
+        with:
+          flavor: build-installers
+          architecture: ${{ inputs.architecture }}
+
+      - name: Resolve version and SOURCE_DATE_EPOCH
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -e
+          VERSION="${{ inputs.version }}"
+          if [ -z "$VERSION" ]; then
+            VERSION="$(gh api repos/git-for-windows/git/releases/latest --jq .tag_name)"
+            VERSION="${VERSION#v}"
+          fi
+          SDK_WIN="${{ steps.setup-sdk.outputs.result }}"
+          SDK_MSYS="$(cygpath -u "$SDK_WIN")"
+          case "$SDK_MSYS" in
+          /) SDK_BASH=/usr/bin/bash.exe;;
+          *) SDK_BASH="$SDK_MSYS/usr/bin/bash.exe";;
+          esac
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "SDK_BASH=$SDK_BASH" >> "$GITHUB_ENV"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          MSYSTEM=${{ inputs.architecture == 'aarch64' && 'CLANGARM64' || 'MINGW64' }} \
+            "$SDK_BASH" --login -c '
+              git clone --depth 1 --branch v$1 https://github.com/git-for-windows/git /tmp/git-src >/dev/null 2>&1
+              echo SDE=$(git -C /tmp/git-src log -1 --format=%ct)
+            ' bash "$VERSION" > /tmp/sde.txt
+          SDE="$(sed -n 's/^SDE=//p' /tmp/sde.txt)"
+          test -n "$SDE" || { cat /tmp/sde.txt; exit 1; }
+          echo "SOURCE_DATE_EPOCH=$SDE"
+          echo "SOURCE_DATE_EPOCH=$SDE" >> "$GITHUB_ENV"
+          echo "sde=$SDE" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare MINGW-packages and git sources at the tag
+        shell: bash
+        run: |
+          set -e
+          MSYSTEM=${{ inputs.architecture == 'aarch64' && 'CLANGARM64' || 'MINGW64' }} \
+            "$SDK_BASH" --login -c '
+              set -e
+              if test ! -d /usr/src/MINGW-packages; then
+                git -c core.autocrlf=false clone --depth 1 --single-branch -b main \
+                  https://github.com/git-for-windows/MINGW-packages /usr/src/MINGW-packages
+              fi
+              cd /usr/src/MINGW-packages/mingw-w64-git
+              if test ! -d git; then
+                git clone --bare https://github.com/git-for-windows/git.git git
+              fi
+              if test ! -d src/git; then
+                git clone --reference git https://github.com/git-for-windows/git src/git
+                echo ../../../../git/objects > src/git/.git/objects/info/alternates
+              fi
+              cd src/git
+              git fetch origin "refs/tags/v$1:refs/tags/v$1"
+              git reset --hard "v$1"
+            ' bash "$VERSION"
+
+      - name: Build mingw-w64-git (run 1)
+        shell: bash
+        run: |
+          set -e
+          case "${{ inputs.architecture }}" in
+          x86_64) MINGW_ARCH_FLAG=--only-x86_64;;
+          aarch64) MINGW_ARCH_FLAG=--only-aarch64;;
+          esac
+          MSYSTEM=${{ inputs.architecture == 'aarch64' && 'CLANGARM64' || 'MINGW64' }} \
+            "$SDK_BASH" --login -c '
+              set -e
+              if test ! -d /usr/src/build-extra; then
+                git -c core.autocrlf=false clone --single-branch -b $2 \
+                  https://github.com/$1 /usr/src/build-extra
+              else
+                git -C /usr/src/build-extra fetch origin $2
+                git -C /usr/src/build-extra switch -C $2 FETCH_HEAD
+              fi
+              cd /usr/src/build-extra
+              ./please.sh build-mingw-w64-git --reset-pkgrel $3 -o "$4" HEAD
+            ' bash "${{ env.BUILD_EXTRA_REPO }}" "${{ env.BUILD_EXTRA_BRANCH }}" "$MINGW_ARCH_FLAG" "$(cygpath -u "$GITHUB_WORKSPACE")/pkg1"
+
+      - name: Build mingw-w64-git (run 2, clean rebuild)
+        shell: bash
+        run: |
+          set -e
+          case "${{ inputs.architecture }}" in
+          x86_64) MINGW_ARCH_FLAG=--only-x86_64;;
+          aarch64) MINGW_ARCH_FLAG=--only-aarch64;;
+          esac
+          MSYSTEM=${{ inputs.architecture == 'aarch64' && 'CLANGARM64' || 'MINGW64' }} \
+            "$SDK_BASH" --login -c '
+              set -e
+              cd /usr/src/MINGW-packages/mingw-w64-git/src/git
+              git clean -xdf
+              cd /usr/src/MINGW-packages/mingw-w64-git
+              rm -rf pkg
+              cd /usr/src/build-extra
+              ./please.sh build-mingw-w64-git --reset-pkgrel $1 -o "$2" HEAD
+            ' bash "$MINGW_ARCH_FLAG" "$(cygpath -u "$GITHUB_WORKSPACE")/pkg2"
+
+      - name: Compare pkg1 vs pkg2
+        shell: bash
+        run: |
+          set -e
+          W="$(cygpath -u "$GITHUB_WORKSPACE")"
+          MSYSTEM=${{ inputs.architecture == 'aarch64' && 'CLANGARM64' || 'MINGW64' }} \
+            "$SDK_BASH" --login -c '
+              set -e
+              cd /usr/src/build-extra
+              for p in "$1"/*-any.pkg.tar.xz; do
+                test -f "$p" || continue
+                b=$(basename "$p")
+                test -f "$2/$b" || { echo "MISSING in run 2: $b"; exit 1; }
+                echo "== comparing $b"
+                ./ci/verify-reproducible.sh --pkg "$1/$b" "$2/$b"
+              done
+            ' bash "$W/pkg1" "$W/pkg2"
+
+      - name: Upload pkg1 (for artifact-repro)
+        uses: actions/upload-artifact@v4
+        with:
+          name: pkg-${{ inputs.architecture }}
+          path: pkg1
+          if-no-files-found: error
+
+  artifact-repro:
+    name: artifact-repro (packaging determinism)
+    needs: pkg-repro
+    runs-on: ${{ inputs.architecture == 'aarch64' && 'windows-11-arm' || 'windows-latest' }}
+    env:
+      VERSION: ${{ needs.pkg-repro.outputs.version }}
+      SOURCE_DATE_EPOCH: ${{ needs.pkg-repro.outputs.sde }}
+    steps:
+      - name: Checkout build-extra (verify branch)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.BUILD_EXTRA_REPO }}
+          ref: ${{ env.BUILD_EXTRA_BRANCH }}
+          path: work/build-extra
+
+      - name: Set up Git for Windows SDK (build-installers)
+        id: setup-sdk
+        uses: git-for-windows/setup-git-for-windows-sdk@v2
+        with:
+          flavor: build-installers
+          architecture: ${{ inputs.architecture }}
+
+      - name: Download pkg1
+        uses: actions/download-artifact@v4
+        with:
+          name: pkg-${{ inputs.architecture }}
+          path: pkg1
+
+      - name: Build artifacts (run 1)
+        shell: bash
+        run: |
+          set -e
+          SDK_MSYS="$(cygpath -u "${{ steps.setup-sdk.outputs.result }}")"
+          case "$SDK_MSYS" in
+          /) SDK_BASH=/usr/bin/bash.exe;;
+          *) SDK_BASH="$SDK_MSYS/usr/bin/bash.exe";;
+          esac
+          W="$(cygpath -u "$GITHUB_WORKSPACE")"
+          MSYSTEM=${{ inputs.architecture == 'aarch64' && 'CLANGARM64' || 'MINGW64' }} \
+            "$SDK_BASH" --login -c '
+              set -e
+              if test ! -d /usr/src/build-extra; then
+                git -c core.autocrlf=false clone --single-branch -b $2 \
+                  https://github.com/$1 /usr/src/build-extra
+              else
+                git -C /usr/src/build-extra fetch origin $2
+                git -C /usr/src/build-extra switch -C $2 FETCH_HEAD
+              fi
+              cd /usr/src/build-extra
+              export SOURCE_DATE_EPOCH="$3"
+              echo "==> SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH"
+              ./please.sh make_installers_from_mingw_w64_git \
+                --version="$4" -o "$5" \
+                --installer --portable --mingit --archive \
+                --pkg="$(ls "$6"/*-any.pkg.tar.xz | paste -sd, -)"
+            ' bash "${{ env.BUILD_EXTRA_REPO }}" "${{ env.BUILD_EXTRA_BRANCH }}" "$SOURCE_DATE_EPOCH" "$VERSION" "$W/dist1" "$W/pkg1"
+
+      - name: Build artifacts (run 2)
+        shell: bash
+        run: |
+          set -e
+          SDK_MSYS="$(cygpath -u "${{ steps.setup-sdk.outputs.result }}")"
+          case "$SDK_MSYS" in
+          /) SDK_BASH=/usr/bin/bash.exe;;
+          *) SDK_BASH="$SDK_MSYS/usr/bin/bash.exe";;
+          esac
+          W="$(cygpath -u "$GITHUB_WORKSPACE")"
+          MSYSTEM=${{ inputs.architecture == 'aarch64' && 'CLANGARM64' || 'MINGW64' }} \
+            "$SDK_BASH" --login -c '
+              set -e
+              if test ! -d /usr/src/build-extra; then
+                git -c core.autocrlf=false clone --single-branch -b $2 \
+                  https://github.com/$1 /usr/src/build-extra
+              else
+                git -C /usr/src/build-extra fetch origin $2
+                git -C /usr/src/build-extra switch -C $2 FETCH_HEAD
+              fi
+              cd /usr/src/build-extra
+              export SOURCE_DATE_EPOCH="$3"
+              echo "==> SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH"
+              ./please.sh make_installers_from_mingw_w64_git \
+                --version="$4" -o "$5" \
+                --installer --portable --mingit --archive \
+                --pkg="$(ls "$6"/*-any.pkg.tar.xz | paste -sd, -)"
+            ' bash "${{ env.BUILD_EXTRA_REPO }}" "${{ env.BUILD_EXTRA_BRANCH }}" "$SOURCE_DATE_EPOCH" "$VERSION" "$W/dist2" "$W/pkg1"
+
+      - name: Build artifacts (baseline, no SOURCE_DATE_EPOCH)
+        if: inputs.baseline == true
+        shell: bash
+        run: |
+          set -e
+          SDK_MSYS="$(cygpath -u "${{ steps.setup-sdk.outputs.result }}")"
+          case "$SDK_MSYS" in
+          /) SDK_BASH=/usr/bin/bash.exe;;
+          *) SDK_BASH="$SDK_MSYS/usr/bin/bash.exe";;
+          esac
+          W="$(cygpath -u "$GITHUB_WORKSPACE")"
+          MSYSTEM=${{ inputs.architecture == 'aarch64' && 'CLANGARM64' || 'MINGW64' }} \
+            "$SDK_BASH" --login -c '
+              set -e
+              cd /usr/src/build-extra
+              unset SOURCE_DATE_EPOCH
+              ./please.sh make_installers_from_mingw_w64_git \
+                --version="$2" -o "$3" \
+                --installer --portable --mingit --archive \
+                --pkg="$(ls "$4"/*-any.pkg.tar.xz | paste -sd, -)"
+            ' bash "${{ env.BUILD_EXTRA_REPO }}" "$VERSION" "$W/dist0" "$W/pkg1"
+
+      - name: Compare dist1 vs dist2
+        shell: bash
+        run: |
+          set -e
+          SDK_MSYS="$(cygpath -u "${{ steps.setup-sdk.outputs.result }}")"
+          case "$SDK_MSYS" in
+          /) SDK_BASH=/usr/bin/bash.exe;;
+          *) SDK_BASH="$SDK_MSYS/usr/bin/bash.exe";;
+          esac
+          W="$(cygpath -u "$GITHUB_WORKSPACE")"
+          MSYSTEM=${{ inputs.architecture == 'aarch64' && 'CLANGARM64' || 'MINGW64' }} \
+            "$SDK_BASH" --login -c '
+              set -e
+              cd /usr/src/build-extra
+              ./ci/verify-reproducible.sh --dir "$1" "$2"
+            ' bash "$W/dist1" "$W/dist2"
+
+      - name: Compare dist1 vs baseline (expect a difference)
+        if: inputs.baseline == true
+        shell: bash
+        run: |
+          set +e
+          SDK_MSYS="$(cygpath -u "${{ steps.setup-sdk.outputs.result }}")"
+          case "$SDK_MSYS" in
+          /) SDK_BASH=/usr/bin/bash.exe;;
+          *) SDK_BASH="$SDK_MSYS/usr/bin/bash.exe";;
+          esac
+          W="$(cygpath -u "$GITHUB_WORKSPACE")"
+          MSYSTEM=${{ inputs.architecture == 'aarch64' && 'CLANGARM64' || 'MINGW64' }} \
+            "$SDK_BASH" --login -c '
+              cd /usr/src/build-extra
+              ./ci/verify-reproducible.sh --dir "$1" "$2"
+            ' bash "$W/dist1" "$W/dist0"
+          rc=$?
+          if test "$rc" = 0; then
+            echo "UNEXPECTED: baseline build is identical to the pinned one"
+            exit 1
+          fi
+          echo "OK: baseline (no SOURCE_DATE_EPOCH) differs, as expected"
+
+      - name: Upload dist1 and dist2
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ inputs.architecture }}
+          path: |
+            dist1
+            dist2
+          if-no-files-found: error
+
+  signing:
+    name: signing (timestamped signatures differ)
+    needs: artifact-repro
+    if: inputs.run_signing == 'true' && secrets.AZURE_CLIENT_ID != ''
+    runs-on: windows-latest
+    steps:
+      - name: Download dist1
+        uses: actions/download-artifact@v4
+        with:
+          name: dist-${{ inputs.architecture }}
+          path: dist1
+
+      - name: Checkout automation (for azure-signtool.sh)
+        uses: actions/checkout@v4
+        with:
+          repository: git-for-windows/git-for-windows-automation
+          path: automation
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+
+      - name: Sign the same installer twice and compare
+        env:
+          AZURE_SIGNING_OPTS: ${{ secrets.AZURE_SIGNING_OPTS }}
+        shell: bash
+        run: |
+          set -e
+          git config --global alias.signtool "!sh \"$PWD/automation/azure-signtool.sh\""
+          cp dist1/Git-*.exe signed1.exe
+          cp dist1/Git-*.exe signed2.exe
+          git signtool signed1.exe
+          git signtool signed2.exe
+          sha256sum signed1.exe signed2.exe
+          # RFC 3161 timestamps differ between runs, so the signatures must
+          # differ too, even though the payload is identical.
+          if cmp -s signed1.exe signed2.exe; then
+            echo "UNEXPECTED: the two signed binaries are identical"
+            exit 1
+          fi
+          echo "OK: signed binaries differ (timestamped signatures), as expected"
