@@ -170,6 +170,27 @@ type 7z ||
 pacman -Sy --noconfirm $MINGW_PREFIX-7zip ||
 die "Could not install 7-Zip"
 
+# ---- Reproducible: pin file mtimes to $SOURCE_DATE_EPOCH (if set) ----
+# 7z archives embed file timestamps; pinning mtimes makes repeated builds of
+# the same version byte-identical. Skipped when SOURCE_DATE_EPOCH is unset.
+if test -n "$SOURCE_DATE_EPOCH"; then
+	echo "==> pinning file mtimes (SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH)"
+	tmp="$(mktemp)"
+	printf '%s\n' $LIST |
+	while IFS= read -r f
+	do
+		test -n "$f" || continue
+		touch -h -d "@$SOURCE_DATE_EPOCH" "/$f" 2>/dev/null || echo "$f" >>"$tmp"
+	done
+	find "$SCRIPT_PATH/root" -exec touch -h -d "@$SOURCE_DATE_EPOCH" {} + 2>/dev/null || true
+	if test -s "$tmp"
+	then
+		echo "==> WARNING: could not pin mtime of $(wc -l <"$tmp") file(s):" >&2
+		sed -n '1,20p' "$tmp" >&2
+	fi
+	rm -f "$tmp"
+fi
+
 echo "Creating archive" &&
 echo $LIST | tr ' ' '\n' >$TMPPACK.list &&
 # 7-Zip will strip absolute paths completely... therefore, we can add another

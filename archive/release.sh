@@ -127,6 +127,27 @@ type tar ||
 pacman -Sy --noconfirm tar ||
 die "Could not install tar"
 
+# ---- Reproducible: pin file mtimes to $SOURCE_DATE_EPOCH (if set) ----
+# tar archives embed file timestamps; pinning mtimes makes repeated builds of
+# the same version byte-identical. Skipped when SOURCE_DATE_EPOCH is unset.
+if test -n "$SOURCE_DATE_EPOCH"; then
+	echo "==> pinning file mtimes (SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH)"
+	tmp="$(mktemp)"
+	printf '%s\n' $LIST |
+	while IFS= read -r f
+	do
+		test -n "$f" || continue
+		touch -h -d "@$SOURCE_DATE_EPOCH" "/$f" 2>/dev/null || echo "$f" >>"$tmp"
+	done
+	find "$SCRIPT_PATH/root" -exec touch -h -d "@$SOURCE_DATE_EPOCH" {} + 2>/dev/null || true
+	if test -s "$tmp"
+	then
+		echo "==> WARNING: could not pin mtime of $(wc -l <"$tmp") file(s):" >&2
+		sed -n '1,20p' "$tmp" >&2
+	fi
+	rm -f "$tmp"
+fi
+
 echo "Creating .tar.bz2 archive" &&
 if ! tar -c -j -f "$TARGET" --directory=/ --exclude=etc/post-install/* $LIST --directory=$SCRIPT_PATH/root bin dev etc tmp $MSYSTEM_LOWER && test $? = 1
 then
