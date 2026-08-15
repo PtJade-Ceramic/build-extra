@@ -125,6 +125,14 @@ jobs:
               cd src/git
               git fetch origin "refs/tags/v$1:refs/tags/v$1"
               git reset --hard "v$1"
+              # The PKGBUILD deliberately runs `unset GIT_VERSION` in build()
+              # and rewrites config.mak in prepare(), so neither an exported
+              # environment variable nor a config.mak entry can pin the
+              # version. Instead, make sure the working tree is clean by
+              # checking out the sha1collisiondetection submodule; the
+              # `git describe --dirty` fallback in GIT-VERSION-GEN then
+              # yields a stable version for both runs.
+              git submodule update --init --recursive
             ' bash "$VERSION"
 
       - name: Build mingw-w64-git (run 1)
@@ -169,12 +177,11 @@ jobs:
               # build-mingw-w64-git resolves the release tag relative to the
               # current repository, so it must run from the git sources.
               cd /usr/src/MINGW-packages/mingw-w64-git/src/git
-              # Inject the version through config.mak as well; the Makefile
-              # captures GIT_VERSION_OVERRIDE from it before GIT-VERSION-FILE
-              # is included, and this survives --login/makepkg regardless of
-              # whether the exported environment variable does.
-              printf "GIT_VERSION = %s\n" "$1" > config.mak
-              cat config.mak >&2
+              # config.mak injection does not work: the PKGBUILD's prepare()
+              # overwrites config.mak and its build() unsets GIT_VERSION, so
+              # GIT-VERSION-GEN always falls back to `git describe --dirty`.
+              # What matters is that the working tree is clean (submodule
+              # checked out, see the prepare step), so describe is stable.
               /usr/src/build-extra/please.sh build-mingw-w64-git --reset-pkgrel --maybe-sync $4 -o "$5" HEAD
             ' bash "$VERSION" "${{ env.BUILD_EXTRA_REPO }}" "${{ env.BUILD_EXTRA_BRANCH }}" "$MINGW_ARCH_FLAG" "$(cygpath -u "$GITHUB_WORKSPACE")/pkg1"
           # Fingerprint the generated build inputs. git.rc/git.res feed the
@@ -213,6 +220,9 @@ jobs:
               export GIT_VERSION="$1"
               cd /usr/src/MINGW-packages/mingw-w64-git/src/git
               git clean -xdf
+              # Ensure the sha1collisiondetection submodule is checked out
+              # (as in the prepare step) so `git describe --dirty` is stable.
+              git submodule update --init --recursive
               cd /usr/src/MINGW-packages/mingw-w64-git
               rm -rf pkg
               # Drop the packages produced by run 1, otherwise makepkg
@@ -228,8 +238,6 @@ jobs:
               # build-mingw-w64-git resolves the release tag relative to the
               # current repository, so it must run from the git sources.
               cd /usr/src/MINGW-packages/mingw-w64-git/src/git
-              printf "GIT_VERSION = %s\n" "$1" > config.mak
-              cat config.mak >&2
               /usr/src/build-extra/please.sh build-mingw-w64-git --reset-pkgrel --maybe-sync $2 -o "$3" HEAD
             ' bash "$VERSION" "$MINGW_ARCH_FLAG" "$(cygpath -u "$GITHUB_WORKSPACE")/pkg2"
           W="$(cygpath -u "$GITHUB_WORKSPACE")"
