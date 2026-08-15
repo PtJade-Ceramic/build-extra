@@ -85,12 +85,23 @@ do
 		echo "  size: a=$(wc -c <"$extract_a" 2>/dev/null) b=$(wc -c <"$extract_b" 2>/dev/null)" >&2
 		case "$f" in
 		.MTREE|.PKGINFO)
-			diff -u "$extract_a" "$extract_b" 2>/dev/null | sed -n '1,25p' >&2 || true
+			diff -u "$extract_a" "$extract_b" 2>/dev/null |
+				grep -E '^[+-]' | sed -n '1,20p' >&2 || true
 			;;
 		*)
 			# first differing byte offset (and octal byte values), if any
 			cmp -l "$extract_a" "$extract_b" 2>/dev/null | sed -n '1p' |
 				awk '{ printf "  first diff at byte %s (a=%s b=%s)\n", $1, $2, $3 }' >&2 || true
+			# PE header comparison (binutils objdump may be absent)
+			if type -p objdump >/dev/null 2>&1
+			then
+				for side in a b
+				do
+					if test "$side" = a; then f="$extract_a"; else f="$extract_b"; fi
+					echo "  [$side] PE: $(objdump -p "$f" 2>/dev/null | grep -E 'TimeDateStamp|SizeOfImage|SizeOfHeaders|CheckSum' | tr '\n' ';')" >&2
+					echo "  [$side] sec: $(objdump -h "$f" 2>/dev/null | awk 'NR>5 {printf "%s=%s ", $2, $3}')" >&2
+				done
+			fi
 			;;
 		esac
 		fail=1
