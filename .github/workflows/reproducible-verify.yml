@@ -146,12 +146,14 @@ jobs:
           MSYSTEM=${{ inputs.architecture == 'aarch64' && 'CLANGARM64' || 'MINGW64' }} \
             "$SDK_BASH" --login -c '
               set -e
+              echo "GIT_VERSION in SDK bash before export: [$GIT_VERSION]" >&2
+              export GIT_VERSION="$1"
               if test ! -d /usr/src/build-extra; then
-                git -c core.autocrlf=false clone --single-branch -b $2 \
-                  https://github.com/$1 /usr/src/build-extra
+                git -c core.autocrlf=false clone --single-branch -b $3 \
+                  https://github.com/$2 /usr/src/build-extra
               else
-                git -C /usr/src/build-extra fetch origin $2
-                git -C /usr/src/build-extra switch -C $2 FETCH_HEAD
+                git -C /usr/src/build-extra fetch origin $3
+                git -C /usr/src/build-extra switch -C $3 FETCH_HEAD
               fi
               # Match the official release builds: the mingw-w64-git PKGBUILD
               # skips the Rust makedepends when NO_RUST is set, and the pacman
@@ -167,8 +169,14 @@ jobs:
               # build-mingw-w64-git resolves the release tag relative to the
               # current repository, so it must run from the git sources.
               cd /usr/src/MINGW-packages/mingw-w64-git/src/git
-              /usr/src/build-extra/please.sh build-mingw-w64-git --reset-pkgrel --maybe-sync $3 -o "$4" HEAD
-            ' bash "${{ env.BUILD_EXTRA_REPO }}" "${{ env.BUILD_EXTRA_BRANCH }}" "$MINGW_ARCH_FLAG" "$(cygpath -u "$GITHUB_WORKSPACE")/pkg1"
+              # Inject the version through config.mak as well; the Makefile
+              # captures GIT_VERSION_OVERRIDE from it before GIT-VERSION-FILE
+              # is included, and this survives --login/makepkg regardless of
+              # whether the exported environment variable does.
+              printf "GIT_VERSION = %s\n" "$1" > config.mak
+              cat config.mak >&2
+              /usr/src/build-extra/please.sh build-mingw-w64-git --reset-pkgrel --maybe-sync $4 -o "$5" HEAD
+            ' bash "$VERSION" "${{ env.BUILD_EXTRA_REPO }}" "${{ env.BUILD_EXTRA_BRANCH }}" "$MINGW_ARCH_FLAG" "$(cygpath -u "$GITHUB_WORKSPACE")/pkg1"
           # Fingerprint the generated build inputs. git.rc/git.res feed the
           # .rsrc section of every standalone executable via $(LIBS); if they
           # differ between the runs, that explains the 0x30 .rsrc delta.
@@ -201,6 +209,8 @@ jobs:
           MSYSTEM=${{ inputs.architecture == 'aarch64' && 'CLANGARM64' || 'MINGW64' }} \
             "$SDK_BASH" --login -c '
               set -e
+              echo "GIT_VERSION in SDK bash before export: [$GIT_VERSION]" >&2
+              export GIT_VERSION="$1"
               cd /usr/src/MINGW-packages/mingw-w64-git/src/git
               git clean -xdf
               cd /usr/src/MINGW-packages/mingw-w64-git
@@ -218,8 +228,10 @@ jobs:
               # build-mingw-w64-git resolves the release tag relative to the
               # current repository, so it must run from the git sources.
               cd /usr/src/MINGW-packages/mingw-w64-git/src/git
-              /usr/src/build-extra/please.sh build-mingw-w64-git --reset-pkgrel --maybe-sync $1 -o "$2" HEAD
-            ' bash "$MINGW_ARCH_FLAG" "$(cygpath -u "$GITHUB_WORKSPACE")/pkg2"
+              printf "GIT_VERSION = %s\n" "$1" > config.mak
+              cat config.mak >&2
+              /usr/src/build-extra/please.sh build-mingw-w64-git --reset-pkgrel --maybe-sync $2 -o "$3" HEAD
+            ' bash "$VERSION" "$MINGW_ARCH_FLAG" "$(cygpath -u "$GITHUB_WORKSPACE")/pkg2"
           W="$(cygpath -u "$GITHUB_WORKSPACE")"
           MSYSTEM=${{ inputs.architecture == 'aarch64' && 'CLANGARM64' || 'MINGW64' }} \
             "$SDK_BASH" --login -c '
@@ -248,6 +260,10 @@ jobs:
               # Diagnose the fingerprints and contents of the generated build
               # inputs (git.rc / git.res / version files).
               echo "== build-input fingerprints (git.rc / git.res / version files)"
+              echo "--- run1-hashes.txt ---"
+              cat "$1/run1-hashes.txt" 2>&1 || true
+              echo "--- run2-hashes.txt ---"
+              cat "$1/run2-hashes.txt" 2>&1 || true
               diff -u "$1/run1-hashes.txt" "$1/run2-hashes.txt" || true
               echo "== version file contents (GIT-VERSION-FILE / version-def.h)"
               diff -u "$1/run1-versions.txt" "$1/run2-versions.txt" || true
@@ -261,6 +277,7 @@ jobs:
                   m="$(tar -tf "$p" 2>/dev/null | grep "/bin/git.exe\$" | head -1)"
                   test -n "$m" || continue
                   tar -xOf "$p" "$m" > "/tmp/git$side.exe" 2>/dev/null || continue
+                  echo "git.exe (run $side) extract: $(wc -c <"/tmp/git$side.exe" 2>/dev/null || echo 0) bytes; objdump: $(type -p objdump 2>/dev/null || echo MISSING)"
                   echo "git.exe (run $side) sections:"
                   objdump -h "/tmp/git$side.exe" 2>/dev/null | sed -n 5,30p
                   echo "git.exe (run $side) version strings:"
