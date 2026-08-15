@@ -150,6 +150,12 @@ jobs:
               # databases need to be fresh for makepkg to resolve dependencies.
               export NO_RUST=UnfortunatelyYes
               pacman -Sy --noconfirm
+              # makepkg-mingw needs a /usr/bin/git; the build-installers SDK
+              # only ships $MINGW_PREFIX/bin/git.exe, so provide a wrapper
+              # (same as the official git-artifacts.yml does).
+              if test ! -x /usr/bin/git; then
+                printf '#!/bin/sh\n\nexec '$MINGW_PREFIX'/bin/git.exe "$@"\n' >/usr/bin/git
+              fi
               # build-mingw-w64-git resolves the release tag relative to the
               # current repository, so it must run from the git sources.
               cd /usr/src/MINGW-packages/mingw-w64-git/src/git
@@ -172,8 +178,12 @@ jobs:
               cd /usr/src/MINGW-packages/mingw-w64-git
               rm -rf pkg
               # Match the official release builds: the mingw-w64-git PKGBUILD
-              # skips the Rust makedepends when NO_RUST is set.
+              # skips the Rust makedepends when NO_RUST is set, and makepkg
+              # needs a /usr/bin/git wrapper (see run 1).
               export NO_RUST=UnfortunatelyYes
+              if test ! -x /usr/bin/git; then
+                printf '#!/bin/sh\n\nexec '$MINGW_PREFIX'/bin/git.exe "$@"\n' >/usr/bin/git
+              fi
               # build-mingw-w64-git resolves the release tag relative to the
               # current repository, so it must run from the git sources.
               cd /usr/src/MINGW-packages/mingw-w64-git/src/git
