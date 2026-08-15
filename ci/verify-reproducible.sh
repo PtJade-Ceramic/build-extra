@@ -168,8 +168,16 @@ do
 							for side in a b
 							do
 								if test "$side" = a; then f=/tmp/sec.a.$$; else f=/tmp/sec.b.$$; fi
-								echo "  [$side] resources:" >&2
-								python "$(dirname "$0")/parse-rsrc.py" "$f" >&2 2>/dev/null || true
+								if test "$side" = a; then exe_f="$extract_a"; else exe_f="$extract_b"; fi
+								vma=$(objdump -h "$exe_f" 2>/dev/null | awk -v s="$sec" '$2==s {print $4; exit}')
+								imgbase=$(objdump -p "$exe_f" 2>/dev/null | awk '/ImageBase/ {print $2; exit}')
+								rva=0
+								if test -n "$vma" && test -n "$imgbase"
+								then
+									rva=$((16#$vma - 16#$imgbase))
+								fi
+								echo "  [$side] resources (section rva=0x$rva):" >&2
+								python "$(dirname "$0")/parse-rsrc.py" --rva "0x$rva" "$f" >&2 2>/dev/null || true
 							done
 						fi
 					fi

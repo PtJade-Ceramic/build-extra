@@ -48,7 +48,7 @@ TYPE_NAMES = {
 }
 
 
-def walk(data, dir_off, depth, path):
+def walk(data, dir_off, depth, path, rva):
     n_named = word(data, dir_off + 12)
     n_id = word(data, dir_off + 14)
     indent = '  ' * depth
@@ -73,24 +73,46 @@ def walk(data, dir_off, depth, path):
             label = TYPE_NAMES.get(name, 'ID_%d' % name)
         if is_dir:
             print('%s  entry name=0x%x (%s) -> DIR @0x%x' % (indent, name, label, target))
-            walk(data, target, depth + 1, path + [label])
+            walk(data, target, depth + 1, path + [label], rva)
         else:
             # IMAGE_RESOURCE_DATA_ENTRY
             data_off = dword(data, target)
             size = dword(data, target + 4)
-            print('%s  entry name=0x%x (%s) -> DATA off=0x%x size=%d (end=0x%x)'
-                  % (indent, name, label, data_off, size, data_off + size))
+            # data_off is an RVA; convert to an offset within the extracted
+            # section by subtracting the section's RVA (passed in).
+            sec_off = data_off - rva
+            tail = b''
+            head = b''
+            if 0 <= sec_off < len(data):
+                head = data[sec_off:sec_off + 24]
+                if sec_off + size <= len(data):
+                    tail = data[sec_off + size - 8:sec_off + size]
+            crlf = b''
+            if 0 <= sec_off < len(data):
+                chunk = data[sec_off:sec_off + size]
+                crlf = b'CRLF' if b'\r\n' in chunk else b'LF'
+            print('%s  entry name=0x%x (%s) -> DATA rva=0x%x sec_off=0x%x size=%d (end=0x%x) eol=%s'
+                  % (indent, name, label, data_off, sec_off, size, sec_off + size,
+                     crlf.decode()))
+            print('%s    head: %s' % (indent, head.hex()))
+            print('%s    tail: %s' % (indent, tail.hex()))
 
 
 def main():
-    if len(sys.argv) != 2:
-        print('usage: parse-rsrc.py <raw .rsrc section file>', file=sys.stderr)
+    rva = 0
+    args = sys.argv[1:]
+    if len(args) == 3 and args[0] == '--rva':
+        rva = int(args[1], 0)
+        args = args[2:]
+    if len(args) != 1:
+        print('usage: parse-rsrc.py [--rva <section-rva>] <raw .rsrc section file>',
+              file=sys.stderr)
         return 1
-    with open(sys.argv[1], 'rb') as f:
+    with open(args[0], 'rb') as f:
         data = f.read()
     print('section size: %d (0x%x)' % (len(data), len(data)))
     # The root resource directory starts at offset 0.
-    walk(data, 0, 0, [])
+    walk(data, 0, 0, [], rva)
     return 0
 
 
