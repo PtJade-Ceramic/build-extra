@@ -279,18 +279,25 @@ jobs:
               # git.exe is byte-identical between the runs; confirm whether it
               # even has a resource section (it should, if $(LIBS) carries
               # git.res into its link as well) and what version string it
-              # embeds (dirty vs clean).
+              # embeds (dirty vs clean). If tar yields 0 bytes the member is
+              # likely a hardlink/symlink, so also show its tar entry.
               for side in 1 2
               do
                   p="$(ls "$1/pkg$side"/*-any.pkg.tar.xz 2>/dev/null | head -1)"
                   m="$(tar -tf "$p" 2>/dev/null | grep "/bin/git.exe\$" | head -1)"
                   test -n "$m" || continue
-                  tar -xOf "$p" "$m" > "/tmp/git$side.exe" 2>/dev/null || continue
-                  echo "git.exe (run $side) extract: $(wc -c <"/tmp/git$side.exe" 2>/dev/null || echo 0) bytes; objdump: $(type -p objdump 2>/dev/null || echo MISSING)"
-                  echo "git.exe (run $side) sections:"
-                  objdump -h "/tmp/git$side.exe" 2>/dev/null | sed -n 5,30p
-                  echo "git.exe (run $side) version strings:"
-                  strings "/tmp/git$side.exe" 2>/dev/null | grep "2.55.0" | head -5
+                  tar -xOf "$p" "$m" > "/tmp/git$side.exe" 2>/dev/null || true
+                  sz=$(wc -c <"/tmp/git$side.exe" 2>/dev/null || echo 0)
+                  echo "git.exe (run $side) extract: $sz bytes"
+                  if test "$sz" -gt 0
+                  then
+                      echo "git.exe (run $side) sections:"
+                      objdump -h "/tmp/git$side.exe" 2>/dev/null | sed -n 5,30p
+                      echo "git.exe (run $side) version strings:"
+                      strings "/tmp/git$side.exe" 2>/dev/null | grep "2.55.0" | head -5
+                  else
+                      echo "git.exe (run $side) tar entry: $(tar -tvf "$p" 2>/dev/null | grep "/bin/git.exe" | head -2)"
+                  fi
               done
               for p in "$1/pkg1"/*-any.pkg.tar.xz; do
                 test -f "$p" || continue

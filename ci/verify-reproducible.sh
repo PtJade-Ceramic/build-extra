@@ -105,17 +105,43 @@ do
 				do
 					objcopy -O binary --only-section="$sec" "$extract_a" /tmp/sec.a.$$ 2>/dev/null || continue
 					objcopy -O binary --only-section="$sec" "$extract_b" /tmp/sec.b.$$ 2>/dev/null || continue
+					sa=$(wc -c </tmp/sec.a.$$)
+					sb=$(wc -c </tmp/sec.b.$$)
 					if ! cmp -s /tmp/sec.a.$$ /tmp/sec.b.$$
 					then
-						echo "  [$sec] section differs: a=$(wc -c </tmp/sec.a.$$) b=$(wc -c </tmp/sec.b.$$) bytes" >&2
-						off=$(cmp -l /tmp/sec.a.$$ /tmp/sec.b.$$ | sed -n '1s/[[:space:]].*//p')
-						start=$((off - 16))
-						test "$start" -lt 1 && start=1
-						for side in a b
-						do
-							if test "$side" = a; then f=/tmp/sec.a.$$; else f=/tmp/sec.b.$$; fi
-							echo "  [$side][$sec] $(od -An -tx1 -j $((start - 1)) -N 32 "$f" 2>/dev/null | tr -d '\n')" >&2
-						done
+						echo "  [$sec] section differs: a=$sa b=$sb bytes" >&2
+						# First differing byte (1-based). cmp -l prints nothing
+						# for a pure length difference (EOF on the shorter
+						# file), so detect that case explicitly.
+						if off=$(cmp -l /tmp/sec.a.$$ /tmp/sec.b.$$ 2>/dev/null | sed -n '1s/[[:space:]].*//p')
+						then
+							:
+						fi
+						if test -n "$off"
+						then
+							start=$((off - 16))
+							test "$start" -lt 1 && start=1
+							for side in a b
+							do
+								if test "$side" = a; then f=/tmp/sec.a.$$; else f=/tmp/sec.b.$$; fi
+								echo "  [$side][$sec] @$off $(od -An -tx1 -j $((start - 1)) -N 32 "$f" 2>/dev/null | tr -d '\n')" >&2
+							done
+						else
+							echo "  [$sec] content prefix identical; length differs by $((sa - sb)) bytes (EOF on the shorter file)" >&2
+						fi
+						# Show the tail of both sections (resource data that
+						# differs only near EOF is common).
+						ta=$((sa > 48 ? sa - 48 : 0))
+						tb=$((sb > 48 ? sb - 48 : 0))
+						echo "  [$sec] tail a: $(od -An -tx1 -j "$ta" /tmp/sec.a.$$ 2>/dev/null | tr -d '\n')" >&2
+						echo "  [$sec] tail b: $(od -An -tx1 -j "$tb" /tmp/sec.b.$$ 2>/dev/null | tr -d '\n')" >&2
+						if test "$sa" -gt "$sb"
+						then
+							echo "  [$sec] a has $((sa - sb)) trailing bytes: $(od -An -tx1 -j "$sb" -N $((sa - sb)) /tmp/sec.a.$$ 2>/dev/null | tr -d '\n')" >&2
+						elif test "$sb" -gt "$sa"
+						then
+							echo "  [$sec] b has $((sb - sa)) trailing bytes: $(od -An -tx1 -j "$sa" -N $((sb - sa)) /tmp/sec.b.$$ 2>/dev/null | tr -d '\n')" >&2
+						fi
 					fi
 					rm -f /tmp/sec.a.$$ /tmp/sec.b.$$
 				done
