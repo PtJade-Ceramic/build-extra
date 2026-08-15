@@ -119,7 +119,7 @@ jobs:
                 git clone --bare https://github.com/git-for-windows/git.git git
               fi
               if test ! -d src/git; then
-                git clone --reference git https://github.com/git-for-windows/git src/git
+                git -c core.autocrlf=false -c core.eol=lf clone --reference git https://github.com/git-for-windows/git src/git
                 echo ../../../../git/objects > src/git/.git/objects/info/alternates
               fi
               cd src/git
@@ -138,6 +138,12 @@ jobs:
               printf "v%s\n" "$1" > version
               # Keep the worktree tidy for the build (DC_SHA1_SUBMODULE).
               git submodule update --init --recursive
+              # git.manifest is embedded verbatim as the RT_MANIFEST resource
+              # of every standalone executable. Windows checkouts default to
+              # CRLF while the makepkg re-checkout in run 2 (which honours
+              # the PKGBUILD GIT_CONFIG_PARAMETERS) yields LF, so pin the
+              # line endings to LF to keep the embedded bytes identical.
+              sed -i "s/\r$//" compat/win32/git.manifest
             ' bash "$VERSION"
 
       - name: Build mingw-w64-git (run 1)
@@ -238,6 +244,10 @@ jobs:
               # sha1collisiondetection submodule is checked out.
               printf "v%s\n" "$1" > version
               git submodule update --init --recursive
+              # Pin the manifest line endings to LF (see the prepare step);
+              # the makepkg re-checkout normalises them already, this makes
+              # it explicit and immune to checkout configuration drift.
+              sed -i "s/\r$//" compat/win32/git.manifest
               cd /usr/src/MINGW-packages/mingw-w64-git
               rm -rf pkg
               # Drop the packages produced by run 1, otherwise makepkg
