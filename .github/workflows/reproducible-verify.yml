@@ -138,15 +138,6 @@ jobs:
           MSYSTEM=${{ inputs.architecture == 'aarch64' && 'CLANGARM64' || 'MINGW64' }} \
             "$SDK_BASH" --login -c '
               set -e
-              echo "== git: $(type -p git) / $(git --version 2>&1 | head -1)"
-              echo "== /usr/bin/git: $(head -3 /usr/bin/git 2>/dev/null)"
-              echo "== MINGW_PREFIX=$MINGW_PREFIX"
-              echo "== be remote: $(git -C /usr/src/build-extra remote -v 2>&1 | head -2 | tr "\n" "|")"
-              echo "== be HEAD: $(git -C /usr/src/build-extra log -1 --oneline 2>&1)"
-              echo "== please.sh 837-839: $(sed -n "837,839p" /usr/src/build-extra/please.sh 2>&1 | tr "\n" "|")"
-              echo "== mwgw-git: $(ls /usr/src/MINGW-packages/mingw-w64-git 2>&1 | head -6 | tr "\n" "|")"
-              echo "== src/git HEAD: $(git -C /usr/src/MINGW-packages/mingw-w64-git/src/git log -1 --oneline 2>&1)"
-              echo "== src/git tags: $(git -C /usr/src/MINGW-packages/mingw-w64-git/src/git tag --points-at HEAD 2>&1 | tr "\n" "|")"
               if test ! -d /usr/src/build-extra; then
                 git -c core.autocrlf=false clone --single-branch -b $2 \
                   https://github.com/$1 /usr/src/build-extra
@@ -163,7 +154,7 @@ jobs:
               # only ships $MINGW_PREFIX/bin/git.exe, so provide a wrapper
               # (same as the official git-artifacts.yml does).
               if test ! -x /usr/bin/git; then
-                printf '#!/bin/sh\n\nexec '$MINGW_PREFIX'/bin/git.exe "$@"\n' >/usr/bin/git
+                printf "#!/bin/sh\n\nexec %s/bin/git.exe \"\$@\"\n" "$MINGW_PREFIX" > /usr/bin/git
               fi
               # build-mingw-w64-git resolves the release tag relative to the
               # current repository, so it must run from the git sources.
@@ -191,7 +182,7 @@ jobs:
               # needs a /usr/bin/git wrapper (see run 1).
               export NO_RUST=UnfortunatelyYes
               if test ! -x /usr/bin/git; then
-                printf '#!/bin/sh\n\nexec '$MINGW_PREFIX'/bin/git.exe "$@"\n' >/usr/bin/git
+                printf "#!/bin/sh\n\nexec %s/bin/git.exe \"\$@\"\n" "$MINGW_PREFIX" > /usr/bin/git
               fi
               # build-mingw-w64-git resolves the release tag relative to the
               # current repository, so it must run from the git sources.
