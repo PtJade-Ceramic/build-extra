@@ -177,6 +177,9 @@ jobs:
               git clean -xdf
               cd /usr/src/MINGW-packages/mingw-w64-git
               rm -rf pkg
+              # Drop the packages produced by run 1, otherwise makepkg
+              # refuses to rebuild ("package group has already been built").
+              rm -f *.pkg.tar.xz
               # Match the official release builds: the mingw-w64-git PKGBUILD
               # skips the Rust makedepends when NO_RUST is set, and makepkg
               # needs a /usr/bin/git wrapper (see run 1).
