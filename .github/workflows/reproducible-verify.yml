@@ -135,6 +135,14 @@ jobs:
           x86_64) MINGW_ARCH_FLAG=--only-x86_64;;
           aarch64) MINGW_ARCH_FLAG=--only-aarch64;;
           esac
+          # Pin the version the way the official git-artifacts.yml does (it
+          # exports GIT_VERSION as an environment variable). Without this,
+          # GIT-VERSION-GEN falls back to `git describe --dirty`, which
+          # reports a dirty worktree while the sha1collisiondetection
+          # submodule is not yet checked out, making the version string (and
+          # therefore git.rc/git.res/GIT-VERSION-FILE/version-def.h) differ
+          # between the two runs.
+          export GIT_VERSION="$VERSION"
           MSYSTEM=${{ inputs.architecture == 'aarch64' && 'CLANGARM64' || 'MINGW64' }} \
             "$SDK_BASH" --login -c '
               set -e
@@ -170,6 +178,14 @@ jobs:
               cd /usr/src/MINGW-packages/mingw-w64-git/src/git
               sha256sum git.rc git.res GIT-VERSION-FILE version-def.h 2>/dev/null || true
             ' > "$W/run1-hashes.txt" || true
+          MSYSTEM=${{ inputs.architecture == 'aarch64' && 'CLANGARM64' || 'MINGW64' }} \
+            "$SDK_BASH" --login -c '
+              cd /usr/src/MINGW-packages/mingw-w64-git/src/git
+              echo === GIT-VERSION-FILE ===
+              cat GIT-VERSION-FILE 2>/dev/null || true
+              echo === version-def.h ===
+              cat version-def.h 2>/dev/null || true
+            ' > "$W/run1-versions.txt" || true
           cat "$W/run1-hashes.txt" || true
 
       - name: Build mingw-w64-git (run 2, clean rebuild)
@@ -180,6 +196,8 @@ jobs:
           x86_64) MINGW_ARCH_FLAG=--only-x86_64;;
           aarch64) MINGW_ARCH_FLAG=--only-aarch64;;
           esac
+          # Pin the version; see run 1 for why.
+          export GIT_VERSION="$VERSION"
           MSYSTEM=${{ inputs.architecture == 'aarch64' && 'CLANGARM64' || 'MINGW64' }} \
             "$SDK_BASH" --login -c '
               set -e
@@ -208,6 +226,14 @@ jobs:
               cd /usr/src/MINGW-packages/mingw-w64-git/src/git
               sha256sum git.rc git.res GIT-VERSION-FILE version-def.h 2>/dev/null || true
             ' > "$W/run2-hashes.txt" || true
+          MSYSTEM=${{ inputs.architecture == 'aarch64' && 'CLANGARM64' || 'MINGW64' }} \
+            "$SDK_BASH" --login -c '
+              cd /usr/src/MINGW-packages/mingw-w64-git/src/git
+              echo === GIT-VERSION-FILE ===
+              cat GIT-VERSION-FILE 2>/dev/null || true
+              echo === version-def.h ===
+              cat version-def.h 2>/dev/null || true
+            ' > "$W/run2-versions.txt" || true
           cat "$W/run2-hashes.txt" || true
 
       - name: Compare pkg1 vs pkg2
@@ -219,20 +245,26 @@ jobs:
             "$SDK_BASH" --login -c '
               set -e
               cd /usr/src/build-extra
-              # Diagnose the fingerprints of the generated build inputs.
+              # Diagnose the fingerprints and contents of the generated build
+              # inputs (git.rc / git.res / version files).
               echo "== build-input fingerprints (git.rc / git.res / version files)"
               diff -u "$1/run1-hashes.txt" "$1/run2-hashes.txt" || true
+              echo "== version file contents (GIT-VERSION-FILE / version-def.h)"
+              diff -u "$1/run1-versions.txt" "$1/run2-versions.txt" || true
               # git.exe is byte-identical between the runs; confirm whether it
               # even has a resource section (it should, if $(LIBS) carries
-              # git.res into its link as well).
+              # git.res into its link as well) and what version string it
+              # embeds (dirty vs clean).
               for side in 1 2
               do
                   p="$(ls "$1/pkg$side"/*-any.pkg.tar.xz 2>/dev/null | head -1)"
-                  m="$(tar -tf "$p" 2>/dev/null | sed -n '\#/bin/git\.exe$#p' | head -1)"
+                  m="$(tar -tf "$p" 2>/dev/null | grep "/bin/git.exe\$" | head -1)"
                   test -n "$m" || continue
                   tar -xOf "$p" "$m" > "/tmp/git$side.exe" 2>/dev/null || continue
                   echo "git.exe (run $side) sections:"
-                  objdump -h "/tmp/git$side.exe" 2>/dev/null | sed -n '5,30p'
+                  objdump -h "/tmp/git$side.exe" 2>/dev/null | sed -n 5,30p
+                  echo "git.exe (run $side) version strings:"
+                  strings "/tmp/git$side.exe" 2>/dev/null | grep "2.55.0" | head -5
               done
               for p in "$1/pkg1"/*-any.pkg.tar.xz; do
                 test -f "$p" || continue
