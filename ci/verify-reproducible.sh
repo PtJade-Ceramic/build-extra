@@ -159,6 +159,19 @@ do
 							if test "$side" = a; then f="$extract_a"; else f="$extract_b"; fi
 							echo "  [$side] $sec header: $(objdump -h "$f" 2>/dev/null | grep "$sec" | head -1)" >&2
 						done
+						# Parse the resource directory to find which resource
+						# differs in size (only for .rsrc, and only if python
+						# and the parser are available).
+						if test "$sec" = .rsrc && type -p python >/dev/null 2>&1 \
+							&& test -f "$(dirname "$0")/parse-rsrc.py"
+						then
+							for side in a b
+							do
+								if test "$side" = a; then f=/tmp/sec.a.$$; else f=/tmp/sec.b.$$; fi
+								echo "  [$side] resources:" >&2
+								python "$(dirname "$0")/parse-rsrc.py" "$f" >&2 2>/dev/null || true
+							done
+						fi
 					fi
 					rm -f /tmp/sec.a.$$ /tmp/sec.b.$$
 				done
