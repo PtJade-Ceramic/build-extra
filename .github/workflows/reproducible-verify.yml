@@ -128,10 +128,15 @@ jobs:
               # The PKGBUILD deliberately runs `unset GIT_VERSION` in build()
               # and rewrites config.mak in prepare(), so neither an exported
               # environment variable nor a config.mak entry can pin the
-              # version. Instead, make sure the working tree is clean by
-              # checking out the sha1collisiondetection submodule; the
-              # `git describe --dirty` fallback in GIT-VERSION-GEN then
-              # yields a stable version for both runs.
+              # version. GIT-VERSION-GEN does, however, consult a `version`
+              # file before falling back to `git describe --dirty`, and that
+              # file is honoured on every version_gen invocation (GIT-VERSION-
+              # FILE, git.rc, version-def.h alike). Drop one to make the
+              # version stable (and clean) for both runs; without it, git.rc
+              # and GIT-VERSION-FILE can disagree because each version_gen
+              # call re-runs describe at a slightly different worktree state.
+              printf "v%s\n" "$1" > version
+              # Keep the worktree tidy for the build (DC_SHA1_SUBMODULE).
               git submodule update --init --recursive
             ' bash "$VERSION"
 
@@ -221,8 +226,10 @@ jobs:
               export GIT_VERSION="$1"
               cd /usr/src/MINGW-packages/mingw-w64-git/src/git
               git clean -xdf
-              # Ensure the sha1collisiondetection submodule is checked out
-              # (as in the prepare step) so `git describe --dirty` is stable.
+              # Re-create the version file (the stable source of the version
+              # for GIT-VERSION-GEN; see the prepare step) and ensure the
+              # sha1collisiondetection submodule is checked out.
+              printf "v%s\n" "$1" > version
               git submodule update --init --recursive
               cd /usr/src/MINGW-packages/mingw-w64-git
               rm -rf pkg
