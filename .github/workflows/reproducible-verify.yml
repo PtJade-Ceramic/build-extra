@@ -177,11 +177,12 @@ jobs:
               # build-mingw-w64-git resolves the release tag relative to the
               # current repository, so it must run from the git sources.
               cd /usr/src/MINGW-packages/mingw-w64-git/src/git
-              # config.mak injection does not work: the PKGBUILD's prepare()
-              # overwrites config.mak and its build() unsets GIT_VERSION, so
-              # GIT-VERSION-GEN always falls back to `git describe --dirty`.
-              # What matters is that the working tree is clean (submodule
-              # checked out, see the prepare step), so describe is stable.
+              # config.mak injection does not work: the prepare() of the
+              # PKGBUILD overwrites config.mak and its build() unsets
+              # GIT_VERSION, so GIT-VERSION-GEN always falls back to
+              # `git describe --dirty`. What matters is that the working tree
+              # is clean (submodule checked out, see the prepare step), so
+              # describe is stable.
               /usr/src/build-extra/please.sh build-mingw-w64-git --reset-pkgrel --maybe-sync $4 -o "$5" HEAD
             ' bash "$VERSION" "${{ env.BUILD_EXTRA_REPO }}" "${{ env.BUILD_EXTRA_BRANCH }}" "$MINGW_ARCH_FLAG" "$(cygpath -u "$GITHUB_WORKSPACE")/pkg1"
           # Fingerprint the generated build inputs. git.rc/git.res feed the
