@@ -19,19 +19,22 @@ def main():
         s = f.read()
     if "remove-section=.debug" in s:
         return 0
-    needle = "  make $targets &&"
+    needle = "  esac\n}"
     addition = (
-        "  # Reproducible builds: the linker stamps a random CodeView\n"
-        "  # PDB GUID into the .debug section of every executable. Drop\n"
-        "  # it before packaging so a rebuild on the same SDK snapshot\n"
-        "  # is byte-identical. objcopy only accepts one input file, so\n"
-        "  # run it once per executable (in-place).\n"
+        "  esac\n"
+        "  # Reproducible builds: the linker (or cv2pdb on GitHub Actions)\n"
+        "  # stamps a random CodeView PDB GUID into the .debug section of\n"
+        "  # every executable. Drop it at the very end of build(), after\n"
+        "  # the PDB/strip step, so a rebuild on the same SDK snapshot is\n"
+        "  # byte-identical. objcopy only accepts one input file, so run it\n"
+        "  # once per executable (in-place).\n"
         '  find . -name "*.exe" -exec objcopy --remove-section=.debug {} \\;\n'
+        "}"
     )
     if needle not in s:
         sys.stderr.write(f"pattern {needle!r} not found in {path}\n")
         return 1
-    s = s.replace(needle, needle + "\n" + addition, 1)
+    s = s.replace(needle, addition, 1)
     with open(path, "w", encoding="utf-8") as f:
         f.write(s)
     return 0
