@@ -24,8 +24,9 @@ def main():
         "  # Reproducible builds: the linker stamps a random CodeView\n"
         "  # PDB GUID into the .debug section of every executable. Drop\n"
         "  # it before packaging so a rebuild on the same SDK snapshot\n"
-        "  # is byte-identical.\n"
-        '  find . -name "*.exe" -exec objcopy --remove-section=.debug {} +\n'
+        "  # is byte-identical. objcopy only accepts one input file, so\n"
+        "  # run it once per executable (in-place).\n"
+        '  find . -name "*.exe" -exec objcopy --remove-section=.debug {} \\;\n'
     )
     if needle not in s:
         sys.stderr.write(f"pattern {needle!r} not found in {path}\n")
