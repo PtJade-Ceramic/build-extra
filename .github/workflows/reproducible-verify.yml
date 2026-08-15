@@ -161,6 +161,16 @@ jobs:
               cd /usr/src/MINGW-packages/mingw-w64-git/src/git
               /usr/src/build-extra/please.sh build-mingw-w64-git --reset-pkgrel --maybe-sync $3 -o "$4" HEAD
             ' bash "${{ env.BUILD_EXTRA_REPO }}" "${{ env.BUILD_EXTRA_BRANCH }}" "$MINGW_ARCH_FLAG" "$(cygpath -u "$GITHUB_WORKSPACE")/pkg1"
+          # Fingerprint the generated build inputs. git.rc/git.res feed the
+          # .rsrc section of every standalone executable via $(LIBS); if they
+          # differ between the runs, that explains the 0x30 .rsrc delta.
+          W="$(cygpath -u "$GITHUB_WORKSPACE")"
+          MSYSTEM=${{ inputs.architecture == 'aarch64' && 'CLANGARM64' || 'MINGW64' }} \
+            "$SDK_BASH" --login -c '
+              cd /usr/src/MINGW-packages/mingw-w64-git/src/git
+              sha256sum git.rc git.res GIT-VERSION-FILE version-def.h 2>/dev/null || true
+            ' > "$W/run1-hashes.txt" || true
+          cat "$W/run1-hashes.txt" || true
 
       - name: Build mingw-w64-git (run 2, clean rebuild)
         shell: bash
@@ -192,6 +202,13 @@ jobs:
               cd /usr/src/MINGW-packages/mingw-w64-git/src/git
               /usr/src/build-extra/please.sh build-mingw-w64-git --reset-pkgrel --maybe-sync $1 -o "$2" HEAD
             ' bash "$MINGW_ARCH_FLAG" "$(cygpath -u "$GITHUB_WORKSPACE")/pkg2"
+          W="$(cygpath -u "$GITHUB_WORKSPACE")"
+          MSYSTEM=${{ inputs.architecture == 'aarch64' && 'CLANGARM64' || 'MINGW64' }} \
+            "$SDK_BASH" --login -c '
+              cd /usr/src/MINGW-packages/mingw-w64-git/src/git
+              sha256sum git.rc git.res GIT-VERSION-FILE version-def.h 2>/dev/null || true
+            ' > "$W/run2-hashes.txt" || true
+          cat "$W/run2-hashes.txt" || true
 
       - name: Compare pkg1 vs pkg2
         shell: bash
@@ -202,14 +219,29 @@ jobs:
             "$SDK_BASH" --login -c '
               set -e
               cd /usr/src/build-extra
-              for p in "$1"/*-any.pkg.tar.xz; do
+              # Diagnose the fingerprints of the generated build inputs.
+              echo "== build-input fingerprints (git.rc / git.res / version files)"
+              diff -u "$1/run1-hashes.txt" "$1/run2-hashes.txt" || true
+              # git.exe is byte-identical between the runs; confirm whether it
+              # even has a resource section (it should, if $(LIBS) carries
+              # git.res into its link as well).
+              for side in 1 2
+              do
+                  p="$(ls "$1/pkg$side"/*-any.pkg.tar.xz 2>/dev/null | head -1)"
+                  m="$(tar -tf "$p" 2>/dev/null | sed -n '\#/bin/git\.exe$#p' | head -1)"
+                  test -n "$m" || continue
+                  tar -xOf "$p" "$m" > "/tmp/git$side.exe" 2>/dev/null || continue
+                  echo "git.exe (run $side) sections:"
+                  objdump -h "/tmp/git$side.exe" 2>/dev/null | sed -n '5,30p'
+              done
+              for p in "$1/pkg1"/*-any.pkg.tar.xz; do
                 test -f "$p" || continue
                 b=$(basename "$p")
-                test -f "$2/$b" || { echo "MISSING in run 2: $b"; exit 1; }
+                test -f "$1/pkg2/$b" || { echo "MISSING in run 2: $b"; exit 1; }
                 echo "== comparing $b"
-                ./ci/verify-reproducible.sh --pkg "$1/$b" "$2/$b"
+                ./ci/verify-reproducible.sh --pkg "$1/pkg1/$b" "$1/pkg2/$b"
               done
-            ' bash "$W/pkg1" "$W/pkg2"
+            ' bash "$W"
 
       - name: Upload pkg1 (for artifact-repro)
         uses: actions/upload-artifact@v4

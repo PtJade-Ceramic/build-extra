@@ -92,14 +92,32 @@ do
 			# first differing byte offset (and octal byte values), if any
 			cmp -l "$extract_a" "$extract_b" 2>/dev/null | sed -n '1p' |
 				awk '{ printf "  first diff at byte %s (a=%s b=%s)\n", $1, $2, $3 }' >&2 || true
-			# PE header comparison (binutils objdump may be absent)
-			if type -p objdump >/dev/null 2>&1
+			# PE-level diagnostics (binutils objdump/objcopy may be absent)
+			if type -p objdump >/dev/null 2>&1 && type -p objcopy >/dev/null 2>&1
 			then
 				for side in a b
 				do
 					if test "$side" = a; then f="$extract_a"; else f="$extract_b"; fi
-					echo "  [$side] PE: $(objdump -p "$f" 2>/dev/null | grep -E 'TimeDateStamp|SizeOfImage|SizeOfHeaders|CheckSum' | tr '\n' ';')" >&2
+					echo "  [$side] PE: $(objdump -p "$f" 2>/dev/null | grep -E 'TimeDateStamp|SizeOfImage|SizeOfHeaders|CheckSum|Debug' | tr '\n' ';')" >&2
 					echo "  [$side] sec: $(objdump -h "$f" 2>/dev/null | awk 'NR>5 {printf "%s=%s ", $2, $3}')" >&2
+				done
+				for sec in .rsrc .rdata
+				do
+					objcopy -O binary --only-section="$sec" "$extract_a" /tmp/sec.a.$$ 2>/dev/null || continue
+					objcopy -O binary --only-section="$sec" "$extract_b" /tmp/sec.b.$$ 2>/dev/null || continue
+					if ! cmp -s /tmp/sec.a.$$ /tmp/sec.b.$$
+					then
+						echo "  [$sec] section differs: a=$(wc -c </tmp/sec.a.$$) b=$(wc -c </tmp/sec.b.$$) bytes" >&2
+						off=$(cmp -l /tmp/sec.a.$$ /tmp/sec.b.$$ | sed -n '1s/[[:space:]].*//p')
+						start=$((off - 16))
+						test "$start" -lt 1 && start=1
+						for side in a b
+						do
+							if test "$side" = a; then f=/tmp/sec.a.$$; else f=/tmp/sec.b.$$; fi
+							echo "  [$side][$sec] $(od -An -tx1 -j $((start - 1)) -N 32 "$f" 2>/dev/null | tr -d '\n')" >&2
+						done
+					fi
+					rm -f /tmp/sec.a.$$ /tmp/sec.b.$$
 				done
 			fi
 			;;
