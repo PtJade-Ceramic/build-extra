@@ -176,8 +176,8 @@ do
 								then
 									rva=$((16#$vma - 16#$imgbase))
 								fi
-								echo "  [$side] resources (section rva=0x$rva):" >&2
-								python "$(dirname "$0")/parse-rsrc.py" --rva "0x$rva" "$f" >&2 2>/dev/null || true
+								echo "  [$side] resources (section rva=0x$(printf '%x' "$rva")):" >&2
+								python "$(dirname "$0")/parse-rsrc.py" --rva "$(printf '0x%x' "$rva")" "$f" >&2 2>/dev/null || true
 							done
 						fi
 					fi
