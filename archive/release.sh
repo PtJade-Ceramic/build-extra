@@ -140,6 +140,22 @@ if test -n "$SOURCE_DATE_EPOCH"; then
 		touch -h -d "@$SOURCE_DATE_EPOCH" "/$f" 2>/dev/null || echo "$f" >>"$tmp"
 	done
 	find "$SCRIPT_PATH/root" -exec touch -h -d "@$SOURCE_DATE_EPOCH" {} + 2>/dev/null || true
+	# Archive formats (tar/zip/7z) also record directory timestamps, and
+	# make-file-list.sh only lists files, so pin the parent chain of every
+	# file plus every directory under the root overlay.
+	printf '%s\n' $LIST |
+	while IFS= read -r f
+	do
+		test -n "$f" || continue
+		d="/${f%/*}"
+		while test -n "$d" && test "$d" != "/" && test -d "$d"
+		do
+			touch -h -d "@$SOURCE_DATE_EPOCH" "$d" 2>/dev/null
+			d="${d%/*}"
+		done
+	done
+	touch -h -d "@$SOURCE_DATE_EPOCH" "/" 2>/dev/null || true
+	find "$SCRIPT_PATH/root" -type d -exec touch -h -d "@$SOURCE_DATE_EPOCH" {} + 2>/dev/null || true
 	if test -s "$tmp"
 	then
 		echo "==> WARNING: could not pin mtime of $(wc -l <"$tmp") file(s):" >&2

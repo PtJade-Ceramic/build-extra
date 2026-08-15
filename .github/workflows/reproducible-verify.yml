@@ -489,7 +489,21 @@ jobs:
             "$SDK_BASH" --login -c '
               set -e
               cd /usr/src/build-extra
-              ./ci/verify-reproducible.sh --dir "$1" "$2"
+              verify_status=0
+              ./ci/verify-reproducible.sh --dir "$1" "$2" || verify_status=$?
+              # For archives, list member timestamps on both sides to
+              # pinpoint which member (file or directory) differs.
+              for f in "$1"/*.exe "$1"/*.tar.bz2 "$1"/*.zip "$1"/*.7z.exe
+              do
+                test -f "$f" || continue
+                b=$(basename "$f")
+                test -f "$2/$b" || continue
+                echo "=== $b: member metadata (run1 vs run2)" >&2
+                7z l -slt -ba "$1/$b" 2>/dev/null | grep -E "^(Path|Modified|Size) = " > /tmp/ar.txt || true
+                7z l -slt -ba "$2/$b" 2>/dev/null | grep -E "^(Path|Modified|Size) = " > /tmp/br.txt || true
+                diff -u /tmp/ar.txt /tmp/br.txt | head -80 || true
+              done
+              exit $verify_status
             ' bash "$W/dist1" "$W/dist2"
 
       - name: Compare dist1 vs baseline (expect a difference)
