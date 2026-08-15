@@ -150,6 +150,15 @@ do
 							if test "$side" = a; then f=/tmp/sec.a.$$; else f=/tmp/sec.b.$$; fi
 							echo "  [$side][$sec] version strings: $(strings -el "$f" 2>/dev/null | grep '2\.55\.0' | head -3 | tr '\n' ' ')" >&2
 						done
+						# Show the section header row for both sides: a pure
+						# SizeOfRawData (file-alignment) difference would mean
+						# the actual resource contents are identical and only
+						# the on-disk padding differs.
+						for side in a b
+						do
+							if test "$side" = a; then f="$extract_a"; else f="$extract_b"; fi
+							echo "  [$side] $sec header: $(objdump -h "$f" 2>/dev/null | grep "$sec" | head -1)" >&2
+						done
 					fi
 					rm -f /tmp/sec.a.$$ /tmp/sec.b.$$
 				done
