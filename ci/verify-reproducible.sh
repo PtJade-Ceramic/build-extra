@@ -142,6 +142,14 @@ do
 						then
 							echo "  [$sec] b has $((sb - sa)) trailing bytes: $(od -An -tx1 -j "$sa" -N $((sb - sa)) /tmp/sec.b.$$ 2>/dev/null | tr -d '\n')" >&2
 						fi
+						# The resource section embeds the version string as
+						# UTF-16; print it to see whether the two builds used
+						# the same (clean or dirty) version in git.rc.
+						for side in a b
+						do
+							if test "$side" = a; then f=/tmp/sec.a.$$; else f=/tmp/sec.b.$$; fi
+							echo "  [$side][$sec] version strings: $(strings -el "$f" 2>/dev/null | grep '2\.55\.0' | head -3 | tr '\n' ' ')" >&2
+						done
 					fi
 					rm -f /tmp/sec.a.$$ /tmp/sec.b.$$
 				done

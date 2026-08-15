@@ -197,6 +197,13 @@ jobs:
           MSYSTEM=${{ inputs.architecture == 'aarch64' && 'CLANGARM64' || 'MINGW64' }} \
             "$SDK_BASH" --login -c '
               cd /usr/src/MINGW-packages/mingw-w64-git/src/git
+              echo === ls git.rc git.res version ===
+              ls -la git.rc git.res version 2>&1 || true
+              echo === cat version ===
+              cat version 2>/dev/null || true
+              echo === head git.rc ===
+              head -5 git.rc 2>/dev/null || true
+              echo === sha256 ===
               sha256sum git.rc git.res GIT-VERSION-FILE version-def.h 2>/dev/null || true
             ' > "$W/run1-hashes.txt" || true
           MSYSTEM=${{ inputs.architecture == 'aarch64' && 'CLANGARM64' || 'MINGW64' }} \
@@ -252,6 +259,13 @@ jobs:
           MSYSTEM=${{ inputs.architecture == 'aarch64' && 'CLANGARM64' || 'MINGW64' }} \
             "$SDK_BASH" --login -c '
               cd /usr/src/MINGW-packages/mingw-w64-git/src/git
+              echo === ls git.rc git.res version ===
+              ls -la git.rc git.res version 2>&1 || true
+              echo === cat version ===
+              cat version 2>/dev/null || true
+              echo === head git.rc ===
+              head -5 git.rc 2>/dev/null || true
+              echo === sha256 ===
               sha256sum git.rc git.res GIT-VERSION-FILE version-def.h 2>/dev/null || true
             ' > "$W/run2-hashes.txt" || true
           MSYSTEM=${{ inputs.architecture == 'aarch64' && 'CLANGARM64' || 'MINGW64' }} \
