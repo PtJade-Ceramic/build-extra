@@ -530,6 +530,24 @@ jobs:
                     ( cd /tmp/ub.$$ && 7z x -y "$2/$b" >/dev/null 2>&1 || true )
                     echo "--- unpacked tree diff (first 40) ---" >&2
                     diff -r /tmp/ua.$$ /tmp/ub.$$ 2>&1 | head -40 || true
+                    echo "--- unpacked tree mtime diff (first 20) ---" >&2
+                    ( cd /tmp/ua.$$ && find . -exec stat -c "%Y %n" {} + 2>/dev/null | sort ) > /tmp/ua.mtime.$$ || true
+                    ( cd /tmp/ub.$$ && find . -exec stat -c "%Y %n" {} + 2>/dev/null | sort ) > /tmp/ub.mtime.$$ || true
+                    diff /tmp/ua.mtime.$$ /tmp/ub.mtime.$$ | head -20 || true
+                    # tar.bz2 extracts to a .tar; unpack one level further.
+                    case "$b" in
+                    *.tar.bz2)
+                        for d in /tmp/ua.$$ /tmp/ub.$$
+                        do
+                            t=$(ls "$d"/*.tar 2>/dev/null | head -1)
+                            test -n "$t" || continue
+                            mkdir -p "$d/tar"
+                            ( cd "$d/tar" && tar -xf "$t" 2>/dev/null || true )
+                        done
+                        echo "--- tar-internal diff (first 30) ---" >&2
+                        diff -r /tmp/ua.$$/tar /tmp/ub.$$/tar 2>&1 | head -30 || true
+                        ;;
+                    esac
                 fi
               done
               exit $verify_status

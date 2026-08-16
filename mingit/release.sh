@@ -215,5 +215,5 @@ if test -n "$SOURCE_DATE_EPOCH"; then
 fi
 
 echo "Creating .zip archive" &&
-(cd / && 7z a -mx9 "$TARGET" $LIST "$SCRIPT_PATH"/root/*) &&
+(cd / && 7z a -mx9 -mta- -mtc- "$TARGET" $LIST "$SCRIPT_PATH"/root/*) &&
 echo "Success! You will find the new MinGit at \"$TARGET\"."
