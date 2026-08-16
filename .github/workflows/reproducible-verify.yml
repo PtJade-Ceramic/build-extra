@@ -499,9 +499,30 @@ jobs:
                 b=$(basename "$f")
                 test -f "$2/$b" || continue
                 echo "=== $b: member metadata (run1 vs run2)" >&2
-                7z l -slt -ba "$1/$b" 2>/dev/null | grep -E "^(Path|Modified|Size) = " > /tmp/ar.txt || true
-                7z l -slt -ba "$2/$b" 2>/dev/null | grep -E "^(Path|Modified|Size) = " > /tmp/br.txt || true
-                diff -u /tmp/ar.txt /tmp/br.txt | head -80 || true
+                7z l -slt -ba "$1/$b" 2>/dev/null > /tmp/ar.txt || true
+                7z l -slt -ba "$2/$b" 2>/dev/null > /tmp/br.txt || true
+                if ! cmp -s /tmp/ar.txt /tmp/br.txt
+                then
+                    echo "--- full -slt diff (first 160 lines) ---" >&2
+                    diff -u /tmp/ar.txt /tmp/br.txt | head -160 || true
+                else
+                    echo "--- 7z -slt member metadata identical ---" >&2
+                    # The member timestamps/sizes match; the archive bytes
+                    # still differ, so compare the archive header itself.
+                    7z l -slt "$1/$b" 2>/dev/null | head -30 > /tmp/ah.txt || true
+                    7z l -slt "$2/$b" 2>/dev/null | head -30 > /tmp/bh.txt || true
+                    diff -u /tmp/ah.txt /tmp/bh.txt | head -60 || true
+                    # Raw first/last bytes of the archive (header / sfx region).
+                    echo "--- archive head/tail bytes ---" >&2
+                    for side in "$1/$b" "$2/$b"
+                    do
+                        sz=$(wc -c < "$side")
+                        tail_off=$((sz - 64))
+                        test "$tail_off" -lt 0 && tail_off=0
+                        echo "  [$side] head: $(od -An -tx1 -N 64 "$side" 2>/dev/null | tr -d "\n")" >&2
+                        echo "  [$side] tail: $(od -An -tx1 -j "$tail_off" -N 64 "$side" 2>/dev/null | tr -d "\n")" >&2
+                    done
+                fi
               done
               exit $verify_status
             ' bash "$W/dist1" "$W/dist2"
