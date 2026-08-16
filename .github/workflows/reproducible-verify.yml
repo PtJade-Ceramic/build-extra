@@ -499,6 +499,18 @@ jobs:
                 b=$(basename "$f")
                 test -f "$2/$b" || continue
                 echo "=== $b: member metadata (run1 vs run2)" >&2
+                # The first differing byte of the archive itself, with a
+                # hex dump around it on both sides, so it is clear whether
+                # the delta is a timestamp, padding or real content.
+                off=$(cmp -l "$1/$b" "$2/$b" 2>/dev/null | sed -n '1s/[[:space:]].*//p')
+                echo "  [archive] first diff at byte: ${off:-?}" >&2
+                if test -n "$off"
+                then
+                    start=$((off - 16))
+                    test "$start" -lt 1 && start=1
+                    echo "  [a] @$off: $(od -An -tx1 -j $((start - 1)) -N 48 "$1/$b" 2>/dev/null | tr -d "\n")" >&2
+                    echo "  [b] @$off: $(od -An -tx1 -j $((start - 1)) -N 48 "$2/$b" 2>/dev/null | tr -d "\n")" >&2
+                fi
                 7z l -slt -ba "$1/$b" 2>/dev/null > /tmp/ar.txt || true
                 7z l -slt -ba "$2/$b" 2>/dev/null > /tmp/br.txt || true
                 if ! cmp -s /tmp/ar.txt /tmp/br.txt
