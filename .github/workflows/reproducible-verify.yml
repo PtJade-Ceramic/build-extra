@@ -495,6 +495,11 @@ jobs:
             "$SDK_BASH" --login -c '
               set -e
               cd /usr/src/build-extra
+              W=$(cygpath -u "$GITHUB_WORKSPACE")
+              # Capture all diagnostics to a file that a subsequent step
+              # uploads even if this step fails (the run log API is not
+              # always reachable).
+              exec > >(tee "$W/compare-diag.txt") 2>&1
               verify_status=0
               ./ci/verify-reproducible.sh --dir "$1" "$2" || verify_status=$?
               # For archives, list member timestamps on both sides to
@@ -584,6 +589,14 @@ jobs:
               done
               exit $verify_status
             ' bash "$W/dist1" "$W/dist2"
+
+      - name: Upload reproducible diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: repro-diag-${{ inputs.architecture }}
+          path: compare-diag.txt
+          if-no-files-found: warn
 
       - name: Compare dist1 vs baseline (expect a difference)
         if: inputs.baseline == true
