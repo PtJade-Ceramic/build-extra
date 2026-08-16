@@ -558,6 +558,20 @@ jobs:
                         done
                         echo "--- tar-internal diff (first 30) ---" >&2
                         diff -r /tmp/ua.$$/tar /tmp/ub.$$/tar 2>&1 | head -30 || true
+                        # The git transport executables are replaced by
+                        # git-wrapper via the git-extra post_install; show
+                        # their sizes and hashes on both sides.
+                        for f in git-receive-pack.exe git-upload-archive.exe git-upload-pack.exe
+                        do
+                            pa=/tmp/ua.$$/tar/mingw64/bin/$f
+                            pb=/tmp/ub.$$/tar/mingw64/bin/$f
+                            if ! cmp -s "$pa" "$pb" 2>/dev/null
+                            then
+                                echo "  [$f] a size=$(wc -c < "$pa" 2>/dev/null) sha=$(sha256sum "$pa" 2>/dev/null | cut -c1-16) b size=$(wc -c < "$pb" 2>/dev/null) sha=$(sha256sum "$pb" 2>/dev/null | cut -c1-16)" >&2
+                                off=$(cmp -l "$pa" "$pb" 2>/dev/null | sed -n "1s/[[:space:]].*//p")
+                                echo "  [$f] first diff byte: ${off:-?}" >&2
+                            fi
+                        done
                         ;;
                     esac
                 fi
