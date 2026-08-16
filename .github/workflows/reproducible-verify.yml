@@ -447,7 +447,7 @@ jobs:
               cd /usr/src/build-extra
               export SOURCE_DATE_EPOCH="$3"
               echo "==> SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH"
-              # Run 1's git-extra post_install replaced the git transport
+              # Run 1 git-extra post_install replaced the git transport
               # executables (git-receive-pack, git-upload-pack,
               # git-upload-archive) with git-wrapper. Force-reinstall so
               # run 2 starts from the packaged state and post_install
