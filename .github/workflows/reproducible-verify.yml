@@ -447,6 +447,12 @@ jobs:
               cd /usr/src/build-extra
               export SOURCE_DATE_EPOCH="$3"
               echo "==> SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH"
+              # Run 1's git-extra post_install replaced the git transport
+              # executables (git-receive-pack, git-upload-pack,
+              # git-upload-archive) with git-wrapper. Force-reinstall so
+              # run 2 starts from the packaged state and post_install
+              # behaves identically to run 1.
+              eval pacman -U --noconfirm --overwrite=\\\* $(ls "$6"/*-any.pkg.tar.xz | paste -sd" ") >/dev/null 2>&1 || true
               ./please.sh make_installers_from_mingw_w64_git \
                 --version="$4" -o "$5" \
                 --installer --portable --mingit --archive \
