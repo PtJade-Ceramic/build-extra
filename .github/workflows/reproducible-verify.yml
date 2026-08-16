@@ -522,6 +522,14 @@ jobs:
                         echo "  [$side] head: $(od -An -tx1 -N 64 "$side" 2>/dev/null | tr -d "\n")" >&2
                         echo "  [$side] tail: $(od -An -tx1 -j "$tail_off" -N 64 "$side" 2>/dev/null | tr -d "\n")" >&2
                     done
+                    # Unpack both sides and diff the extracted trees so a
+                    # differing member is identified by name and content.
+                    rm -rf /tmp/ua.$$ /tmp/ub.$$
+                    mkdir -p /tmp/ua.$$ /tmp/ub.$$
+                    ( cd /tmp/ua.$$ && 7z x -y "$1/$b" >/dev/null 2>&1 || true )
+                    ( cd /tmp/ub.$$ && 7z x -y "$2/$b" >/dev/null 2>&1 || true )
+                    echo "--- unpacked tree diff (first 40) ---" >&2
+                    diff -r /tmp/ua.$$ /tmp/ub.$$ 2>&1 | head -40 || true
                 fi
               done
               exit $verify_status
