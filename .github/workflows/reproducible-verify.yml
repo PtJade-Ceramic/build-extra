@@ -502,7 +502,7 @@ jobs:
                 # The first differing byte of the archive itself, with a
                 # hex dump around it on both sides, so it is clear whether
                 # the delta is a timestamp, padding or real content.
-                off=$(cmp -l "$1/$b" "$2/$b" 2>/dev/null | sed -n '1s/[[:space:]].*//p')
+                off=$(cmp -l "$1/$b" "$2/$b" 2>/dev/null | sed -n "1s/[[:space:]].*//p")
                 echo "  [archive] first diff at byte: ${off:-?}" >&2
                 if test -n "$off"
                 then
