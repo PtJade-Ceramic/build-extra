@@ -449,10 +449,14 @@ jobs:
               echo "==> SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH"
               # Run 1 git-extra post_install replaced the git transport
               # executables (git-receive-pack, git-upload-pack,
-              # git-upload-archive) with git-wrapper. Force-reinstall so
-              # run 2 starts from the packaged state and post_install
-              # behaves identically to run 1.
+              # git-upload-archive) with git-wrapper, which changes the
+              # post_install guard in run 2 (it compares git-wrapper to
+              # libexec/git-core/git-receive-pack.exe and skips the whole
+              # builtins replacement if they match). Force-reinstall and
+              # restore the guard anchor so run 2 applies the same
+              # replacement as run 1.
               eval pacman -U --noconfirm --overwrite=\\\* $(ls "$6"/*-any.pkg.tar.xz | paste -sd" ") >/dev/null 2>&1 || true
+              cp "$MINGW_PREFIX/bin/git.exe" "$MINGW_PREFIX/libexec/git-core/git-receive-pack.exe" 2>/dev/null || true
               ./please.sh make_installers_from_mingw_w64_git \
                 --version="$4" -o "$5" \
                 --installer --portable --mingit --archive \
