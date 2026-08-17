@@ -74,7 +74,7 @@ MSYSTEM_LOWER=${MSYSTEM,,}
 VERSION=$1
 shift
 TARGET="$output_directory"/PortableGit-"$VERSION"-"$ARTIFACT_SUFFIX".7z.exe
-OPTS7="-m0=lzma -mqs -mlc=8 -mx=9 -md=$MD_ARG -mfb=273 -ms=256M "
+OPTS7="-m0=lzma -mqs -mlc=8 -mx=9 -md=$MD_ARG -mfb=273 -ms=256M -mta- -mtc- "
 TMPPACK=/tmp.7z
 SCRIPT_PATH="$(cd "$(dirname "$0")" && pwd)"
 
@@ -169,6 +169,43 @@ test $ARCH == "aarch64" && TITLE="ARM64"
 type 7z ||
 pacman -Sy --noconfirm $MINGW_PREFIX-7zip ||
 die "Could not install 7-Zip"
+
+# ---- Reproducible: pin file mtimes to $SOURCE_DATE_EPOCH (if set) ----
+# 7z archives embed file timestamps; pinning mtimes makes repeated builds of
+# the same version byte-identical. Skipped when SOURCE_DATE_EPOCH is unset.
+if test -n "$SOURCE_DATE_EPOCH"; then
+	echo "==> pinning file mtimes (SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH)"
+	tmp="$(mktemp)"
+	printf '%s\n' $LIST |
+	while IFS= read -r f
+	do
+		test -n "$f" || continue
+		touch -h -d "@$SOURCE_DATE_EPOCH" "/$f" 2>/dev/null || echo "$f" >>"$tmp"
+	done
+	find "$SCRIPT_PATH/root" -exec touch -h -d "@$SOURCE_DATE_EPOCH" {} + 2>/dev/null || true
+	# Archive formats (tar/zip/7z) also record directory timestamps, and
+	# make-file-list.sh only lists files, so pin the parent chain of every
+	# file plus every directory under the root overlay.
+	printf '%s\n' $LIST |
+	while IFS= read -r f
+	do
+		test -n "$f" || continue
+		d="/${f%/*}"
+		while test -n "$d" && test "$d" != "/" && test -d "$d"
+		do
+			touch -h -d "@$SOURCE_DATE_EPOCH" "$d" 2>/dev/null
+			d="${d%/*}"
+		done
+	done
+	touch -h -d "@$SOURCE_DATE_EPOCH" "/" 2>/dev/null || true
+	find "$SCRIPT_PATH/root" -type d -exec touch -h -d "@$SOURCE_DATE_EPOCH" {} + 2>/dev/null || true
+	if test -s "$tmp"
+	then
+		echo "==> WARNING: could not pin mtime of $(wc -l <"$tmp") file(s):" >&2
+		sed -n '1,20p' "$tmp" >&2
+	fi
+	rm -f "$tmp"
+fi
 
 echo "Creating archive" &&
 echo $LIST | tr ' ' '\n' >$TMPPACK.list &&
