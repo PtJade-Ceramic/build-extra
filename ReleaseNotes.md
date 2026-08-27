@@ -1,5 +1,5 @@
-# Git for Windows v2.55.0(3) Release Notes
-Latest update: July 14th 2026
+# Git for Windows v2.55.0(5) Release Notes
+Latest update: August 20th 2026
 
 ## Introduction
 
@@ -36,20 +36,29 @@ Git is licensed under the GNU General Public License version 2.
 
 Git for Windows is distributed with other components yet, such as Bash, zlib, curl, tcl/tk, perl, MSYS2. Each of these components is governed by their respective license.
 
-## Changes since Git for Windows v2.55.0(3) (July 14th 2026)
+## Changes since Git for Windows v2.55.0(4) (August 11th 2026)
 
 Following the [MSYS2 project](https://www.msys2.org/news/#2026-02-28-dropping-support-for-windows-81), on which Git for Windows is based, Windows 8.1 support will be dropped after Git for Windows v2.55.
 
 ### New Features
 
-* Comes with [OpenSSH v10.4.P1](https://github.com/openssh/openssh-portable/releases/tag/V_10_4_P1).
 * The experimental `git survey` command (which was never upstreamed to the core Git project) was deprecated and [converted into a small shim on top of `git repo structure`](https://github.com/git-for-windows/git/pull/6268). In the future, `git repo structure` should be used instead, as the `git survey` command will be retired eventually.
 * Git for Windows' installer [is now a 64-bit executable](https://github.com/git-for-windows/build-extra/pull/726) (x64 instead of 86).
 * Comes with the MSYS2 runtime (Git for Windows flavor) based on [Cygwin v3.6.10](https://inbox.sourceware.org/cygwin-announce/f9d2b89b-c99c-4d02-b0cf-61adea84566b@dronecode.org.uk/).
+* Comes with [OpenSSH v10.5.P1](https://github.com/openssh/openssh-portable/releases/tag/V_10_5_P1).
 
 ### Bug Fixes
 
 * The long-standing [bug](https://github.com/git-for-windows/git/issues/5303) where Git Bash's screen was cleared after `git.exe` called `vim` (e.g. to edit a commit message) [was fixed](https://github.com/git-for-windows/msys2-runtime/pull/131).
+* The Bash executables in the 64-bit and ARM64 distributions no longer carry an invalid Authenticode signature.
+
+## Changes since Git for Windows v2.55.0(3) (July 14th 2026)
+
+Following the [MSYS2 project](https://www.msys2.org/news/#2026-02-28-dropping-support-for-windows-81), on which Git for Windows is based, Windows 8.1 support will be dropped after Git for Windows v2.55.
+
+This is a security fix release, addressing CVE-2026-62960.
+
+* [CVE-2026-62960](https://github.com/git-for-windows/git/security/advisories/GHSA-xrpg-8j9v-v282), Git for Windows: Attacker-controlled servers may advertise bundle URIs that point to network shares, causing Windows to transparently perform NTLM authentication and disclose the user's NTLMv2 hash. Since NTLM hashing is weak, the captured hash can potentially be brute-forced to recover the user's credentials. This is addressed by limiting the bundle URIs that `git clone` respects by the same [`protocol.<name>.allow`](https://git-scm.com/docs/git-config#Documentation/git-config.txt-protocolnameallow) rules as usual, which excludes `file://` URIs by default.
 
 ## Changes since Git for Windows v2.55.0(2) (July 2nd 2026)
 
