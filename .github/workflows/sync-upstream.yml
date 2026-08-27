@@ -1,0 +1,87 @@
+name: Sync Upstream
+
+# Automatically merge upstream git-for-windows/build-extra 'main' into this
+# fork's 'localization/all-languages' branch.
+#
+# - When the merge is clean, it is pushed directly to the fork.
+# - When conflicts occur, a PR is opened for manual resolution (the conflict
+#   markers are committed to the PR head branch so they can be resolved in the
+#   normal review flow).
+#
+# Triggers: scheduled (daily) and manual (workflow_dispatch).
+
+on:
+  schedule:
+    # Daily at 06:00 UTC
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: localization/all-languages
+          fetch-depth: 0
+
+      - name: Add upstream remote and fetch
+        run: |
+          git remote add upstream https://github.com/git-for-windows/build-extra.git
+          git fetch upstream main
+
+      - name: Check whether upstream is already merged
+        id: check
+        run: |
+          if git merge-base --is-ancestor upstream/main HEAD; then
+            echo "needs-merge=false" >> "$GITHUB_OUTPUT"
+            echo "Already up to date with upstream/main"
+          else
+            echo "needs-merge=true" >> "$GITHUB_OUTPUT"
+            echo "Upstream/main has new commits to merge"
+          fi
+
+      - name: Configure git identity
+        if: steps.check.outputs.needs-merge == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Merge upstream into localization/all-languages
+        id: merge
+        if: steps.check.outputs.needs-merge == 'true'
+        run: |
+          if git merge upstream/main --no-edit; then
+            git push origin localization/all-languages
+            echo "conflict=false" >> "$GITHUB_OUTPUT"
+            echo "Merged and pushed upstream/main into localization/all-languages"
+          else
+            echo "conflict=true" >> "$GITHUB_OUTPUT"
+            echo "Merge conflict detected; opening a PR for manual resolution"
+          fi
+
+      - name: Open conflict PR for manual resolution
+        if: steps.merge.outputs.conflict == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          branch="sync-upstream-conflict"
+          git merge --abort
+          git checkout -B "$branch"
+          git merge upstream/main --no-edit || true
+          git add -A
+          git commit -m "merge: incorporate upstream/main (conflicts)" || true
+          git push --force origin "$branch"
+          gh pr create --repo "${{ github.repository }}" \
+            --base localization/all-languages \
+            --head "$branch" \
+            --title "Sync: merge upstream/main (resolve conflicts)" \
+            --body "Automated sync encountered conflicts while merging upstream/main. Please resolve the conflict markers and merge this PR." || true
