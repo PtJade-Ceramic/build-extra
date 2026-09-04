@@ -11,9 +11,13 @@ name: Reproducible build verification
 # Jobs:
 #   pkg-repro       build the mingw-w64-git package twice via makepkg and
 #                   compare every member (compile determinism)
-#   artifact-repro  build installer/portable/mingit/archive twice via the
-#                   release.sh scripts and compare the outputs (packaging
-#                   determinism; installer and portable are NOT signed here)
+#   artifact-build  build installer/portable/mingit/archive once per matrix
+#                   run (1 and 2); each run gets its own fresh SDK and a
+#                   single install of the built git package, so the two runs
+#                   are fully independent and cannot contaminate each other
+#   artifact-repro  download the two runs' artifacts and compare them
+#                   byte-for-byte (packaging determinism; installer and
+#                   portable are NOT signed here)
 #   signing         optional: sign the same installer twice to confirm that
 #                   timestamped code signing prevents byte-identical output
 #                   (needs Azure signing secrets configured in this repo)
@@ -367,10 +371,17 @@ jobs:
           path: pkg1
           if-no-files-found: error
 
-  artifact-repro:
-    name: artifact-repro (packaging determinism)
+  artifact-build:
+    name: artifact-build (run ${{ matrix.run }})
     needs: pkg-repro
     runs-on: ${{ inputs.architecture == 'aarch64' && 'windows-11-arm' || 'windows-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Two fully independent builds: each gets its own fresh SDK and
+        # installs the freshly built git package exactly once.  This is the
+        # control for the shared-SDK contamination that made run 2 differ.
+        run: [1, 2]
     env:
       VERSION: ${{ needs.pkg-repro.outputs.version }}
       SOURCE_DATE_EPOCH: ${{ needs.pkg-repro.outputs.sde }}
@@ -395,10 +406,11 @@ jobs:
           name: pkg-${{ inputs.architecture }}
           path: pkg1
 
-      - name: Build artifacts (run 1)
+      - name: Build artifacts (run ${{ matrix.run }})
         shell: bash
         run: |
           set -e
+          RUN=${{ matrix.run }}
           SDK_MSYS="$(cygpath -u "${{ steps.setup-sdk.outputs.result }}")"
           case "$SDK_MSYS" in
           /) SDK_BASH=/usr/bin/bash.exe;;
@@ -422,9 +434,56 @@ jobs:
                 --version="$4" -o "$5" \
                 --installer --portable --mingit --archive \
                 --pkg="$(ls "$6"/*-any.pkg.tar.xz | paste -sd, -)"
-            ' bash "${{ env.BUILD_EXTRA_REPO }}" "${{ env.BUILD_EXTRA_BRANCH }}" "$SOURCE_DATE_EPOCH" "$VERSION" "$W/dist1" "$W/pkg1"
+            ' bash "${{ env.BUILD_EXTRA_REPO }}" "${{ env.BUILD_EXTRA_BRANCH }}" "$SOURCE_DATE_EPOCH" "$VERSION" "$W/dist$RUN" "$W/pkg1"
 
-      - name: Build artifacts (run 2)
+      - name: Upload dist${{ matrix.run }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-run${{ matrix.run }}-${{ inputs.architecture }}
+          path: dist${{ matrix.run }}
+          if-no-files-found: error
+
+  artifact-repro:
+    name: artifact-repro (packaging determinism)
+    needs: [pkg-repro, artifact-build]
+    runs-on: ${{ inputs.architecture == 'aarch64' && 'windows-11-arm' || 'windows-latest' }}
+    env:
+      VERSION: ${{ needs.pkg-repro.outputs.version }}
+      SOURCE_DATE_EPOCH: ${{ needs.pkg-repro.outputs.sde }}
+    steps:
+      - name: Checkout build-extra (verify branch)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.BUILD_EXTRA_REPO }}
+          ref: ${{ env.BUILD_EXTRA_BRANCH }}
+          path: work/build-extra
+
+      - name: Set up Git for Windows SDK (build-installers)
+        id: setup-sdk
+        uses: git-for-windows/setup-git-for-windows-sdk@v2
+        with:
+          flavor: build-installers
+          architecture: ${{ inputs.architecture }}
+
+      - name: Download pkg1 (for the baseline build)
+        uses: actions/download-artifact@v4
+        with:
+          name: pkg-${{ inputs.architecture }}
+          path: pkg1
+
+      - name: Download run 1 artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist-run1-${{ inputs.architecture }}
+          path: dist1
+
+      - name: Download run 2 artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist-run2-${{ inputs.architecture }}
+          path: dist2
+
+      - name: Prepare build-extra in the SDK
         shell: bash
         run: |
           set -e
@@ -433,7 +492,6 @@ jobs:
           /) SDK_BASH=/usr/bin/bash.exe;;
           *) SDK_BASH="$SDK_MSYS/usr/bin/bash.exe";;
           esac
-          W="$(cygpath -u "$GITHUB_WORKSPACE")"
           MSYSTEM=${{ inputs.architecture == 'aarch64' && 'CLANGARM64' || 'MINGW64' }} \
             "$SDK_BASH" --login -c '
               set -e
@@ -444,24 +502,7 @@ jobs:
                 git -C /usr/src/build-extra fetch origin $2
                 git -C /usr/src/build-extra switch -C $2 FETCH_HEAD
               fi
-              cd /usr/src/build-extra
-              export SOURCE_DATE_EPOCH="$3"
-              echo "==> SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH"
-              # Run 1 git-extra post_install replaced the git transport
-              # executables (git-receive-pack, git-upload-pack,
-              # git-upload-archive) with git-wrapper, which changes the
-              # post_install guard in run 2 (it compares git-wrapper to
-              # libexec/git-core/git-receive-pack.exe and skips the whole
-              # builtins replacement if they match). Force-reinstall and
-              # restore the guard anchor so run 2 applies the same
-              # replacement as run 1.
-              eval pacman -U --noconfirm --overwrite=\\\* $(ls "$6"/*-any.pkg.tar.xz | paste -sd" ") >/dev/null 2>&1 || true
-              cp "$MINGW_PREFIX/bin/git.exe" "$MINGW_PREFIX/libexec/git-core/git-receive-pack.exe" 2>/dev/null || true
-              ./please.sh make_installers_from_mingw_w64_git \
-                --version="$4" -o "$5" \
-                --installer --portable --mingit --archive \
-                --pkg="$(ls "$6"/*-any.pkg.tar.xz | paste -sd, -)"
-            ' bash "${{ env.BUILD_EXTRA_REPO }}" "${{ env.BUILD_EXTRA_BRANCH }}" "$SOURCE_DATE_EPOCH" "$VERSION" "$W/dist2" "$W/pkg1"
+            ' bash "${{ env.BUILD_EXTRA_REPO }}" "${{ env.BUILD_EXTRA_BRANCH }}"
 
       - name: Build artifacts (baseline, no SOURCE_DATE_EPOCH)
         if: inputs.baseline == true
@@ -626,12 +667,18 @@ jobs:
           echo "OK: baseline (no SOURCE_DATE_EPOCH) differs, as expected"
 
       - name: Upload dist1 and dist2
+        # Keep the artifacts even when the compare fails, so the two builds
+        # can be diffed offline to attribute any remaining difference to a
+        # specific member (the Inno installer is not readable by innoextract,
+        # so attribution currently has to happen byte-by-byte).
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: dist-${{ inputs.architecture }}
           path: |
             dist1
             dist2
+            dist0
           if-no-files-found: error
 
   signing:
@@ -640,7 +687,7 @@ jobs:
     # Note: secrets cannot be referenced in job-level if conditions, so the
     # job always starts when requested and the steps below gate on the env
     # copies of the Azure signing secrets.
-    if: inputs.run_signing == 'true'
+    if: inputs.run_signing == true
     runs-on: windows-latest
     env:
       AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
