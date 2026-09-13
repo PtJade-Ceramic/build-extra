@@ -60,6 +60,20 @@ jobs:
         if: steps.check.outputs.needs-merge == 'true'
         run: |
           if git merge upstream/main --no-edit; then
+            # The workflow's own GITHUB_TOKEN has no `workflows` permission, so
+            # it is not allowed to create or update files below
+            # .github/workflows/. A merge that carries upstream's main.yml
+            # cannot be pushed as it is. Keep this branch's copies of those
+            # files and amend the merge commit, so that the push below does not
+            # touch them at all.
+            if [ -n "$(git diff --name-only 'HEAD^1' HEAD -- .github/workflows)" ]; then
+              echo "::warning::Upstream changed these workflow files; keeping this branch's copies:"
+              git diff --name-only 'HEAD^1' HEAD -- .github/workflows
+              git rm -r --cached -q .github/workflows
+              git checkout 'HEAD^1' -- .github/workflows
+              git clean -fdq .github/workflows
+              git commit --amend --no-edit
+            fi
             git push origin localization/all-languages
             echo "conflict=false" >> "$GITHUB_OUTPUT"
             echo "Merged and pushed upstream/main into localization/all-languages"
@@ -77,6 +91,16 @@ jobs:
           git merge --abort
           git checkout -B "$branch"
           git merge upstream/main --no-edit || true
+          # Same reason as in the merge step above: this branch's workflow files
+          # must survive the merge untouched, whatever upstream did to them.
+          if [ -n "$(git diff --name-only HEAD -- .github/workflows)" ]; then
+            echo "::warning::Upstream changed these workflow files; keeping this branch's copies:"
+            git diff --name-only HEAD -- .github/workflows
+            git checkout HEAD -- .github/workflows
+            git rm -r --cached -q .github/workflows
+            git checkout HEAD -- .github/workflows
+            git clean -fdq .github/workflows
+          fi
           git add -A
           git commit -m "merge: incorporate upstream/main (conflicts)" || true
           git push --force origin "$branch"
