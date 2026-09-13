@@ -8,6 +8,15 @@ name: Sync Upstream
 #   markers are committed to the PR head branch so they can be resolved in the
 #   normal review flow).
 #
+# .github/workflows/* is never taken from upstream. GitHub refuses any push made
+# with the workflow token that creates or updates workflow files
+# ("refusing to allow a GitHub App to create or update workflow ...
+# without `workflows` permission"), which made the plain merge of upstream/main
+# fail as soon as upstream touched one of its own workflows. This branch keeps
+# its own copies instead; upstream changes to those files are listed in the job
+# summary so they can be copied over by hand and committed with a token that has
+# the `workflow` scope.
+#
 # Triggers: scheduled (daily) and manual (workflow_dispatch).
 
 on:
@@ -24,13 +33,16 @@ concurrency:
   group: sync-upstream
   cancel-in-progress: false
 
+env:
+  SYNC_BRANCH: localization/all-languages
+
 jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: localization/all-languages
+          ref: ${{ env.SYNC_BRANCH }}
           fetch-depth: 0
 
       - name: Add upstream remote and fetch
@@ -55,57 +67,99 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Merge upstream into localization/all-languages
+      - name: Remember this branch's workflow files
+        if: steps.check.outputs.needs-merge == 'true'
+        run: |
+          # Snapshot *before* merging: whatever upstream does to
+          # .github/workflows, these copies are what gets pushed.
+          keep="$RUNNER_TEMP/keep-workflows"
+          rm -rf "$keep"
+          mkdir -p "$keep"
+          cp -a .github/workflows/. "$keep/"
+          git rev-parse HEAD > "$RUNNER_TEMP/pre-merge-tip"
+          # Which workflow files upstream changes with this merge (only upstream's
+          # side, thanks to the three-dot form)?
+          git diff --name-only HEAD...upstream/main -- .github/workflows \
+            > "$RUNNER_TEMP/upstream-workflow-changes"
+
+      - name: Merge upstream into ${{ env.SYNC_BRANCH }}
         id: merge
         if: steps.check.outputs.needs-merge == 'true'
         run: |
-          if git merge upstream/main --no-edit; then
-            # The workflow's own GITHUB_TOKEN has no `workflows` permission, so
-            # it is not allowed to create or update files below
-            # .github/workflows/. A merge that carries upstream's main.yml
-            # cannot be pushed as it is. Keep this branch's copies of those
-            # files and amend the merge commit, so that the push below does not
-            # touch them at all.
-            if [ -n "$(git diff --name-only 'HEAD^1' HEAD -- .github/workflows)" ]; then
-              echo "::warning::Upstream changed these workflow files; keeping this branch's copies:"
-              git diff --name-only 'HEAD^1' HEAD -- .github/workflows
-              git rm -r --cached -q .github/workflows
-              git checkout 'HEAD^1' -- .github/workflows
-              git clean -fdq .github/workflows
-              git commit --amend --no-edit
-            fi
-            git push origin localization/all-languages
+          # --no-ff so that the first parent always stays this branch's tip,
+          # which keeps the pre-merge tip unambiguous below.
+          if git merge --no-ff upstream/main --no-edit; then
             echo "conflict=false" >> "$GITHUB_OUTPUT"
-            echo "Merged and pushed upstream/main into localization/all-languages"
+            echo "Merged upstream/main without conflicts"
           else
             echo "conflict=true" >> "$GITHUB_OUTPUT"
             echo "Merge conflict detected; opening a PR for manual resolution"
           fi
 
+      - name: Keep this branch's workflow files
+        if: steps.check.outputs.needs-merge == 'true'
+        run: |
+          # Works for a clean merge as well as for one with conflicts: drop
+          # whatever upstream brought along for .github/workflows and restore
+          # this branch's own copies.
+          rm -rf .github/workflows
+          mkdir -p .github/workflows
+          cp -a "$RUNNER_TEMP/keep-workflows/." .github/workflows/
+          # `git add` also resolves any conflict on those paths.
+          git add -A .github/workflows
+
+          tip="$(cat "$RUNNER_TEMP/pre-merge-tip")"
+          if ! git diff --quiet "$tip" -- .github/workflows; then
+            echo "::error::.github/workflows does not match $tip"
+            git diff --stat "$tip" -- .github/workflows
+            exit 1
+          fi
+
+          if [ "${{ steps.merge.outputs.conflict }}" = "false" ]; then
+            # Fold the restored files into the merge commit, so that the push
+            # contains no workflow change at all.
+            if ! git diff --cached --quiet; then
+              git commit --amend --no-edit
+            fi
+            if ! git diff --quiet "$tip" HEAD -- .github/workflows; then
+              echo "::error::workflow changes leaked into the merge commit"
+              exit 1
+            fi
+          fi
+
+      - name: Report upstream workflow changes that were skipped
+        if: steps.check.outputs.needs-merge == 'true'
+        run: |
+          if [ -s "$RUNNER_TEMP/upstream-workflow-changes" ]; then
+            echo "::warning::Upstream changed workflow files; this branch kept its own copies (see job summary)"
+            {
+              echo "### Skipped upstream changes to \`.github/workflows\`"
+              echo
+              echo "This branch keeps its own workflow files, because the Actions"
+              echo "token may not push workflow changes. Copy over anything that is"
+              echo "needed by hand, using a token with the \`workflow\` scope:"
+              echo
+              sed 's/^/- `/' "$RUNNER_TEMP/upstream-workflow-changes" | sed 's/$/`/'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Push merge result
+        if: steps.check.outputs.needs-merge == 'true' && steps.merge.outputs.conflict == 'false'
+        run: |
+          git push origin "HEAD:refs/heads/${{ env.SYNC_BRANCH }}"
+          echo "Pushed $(git rev-parse --short HEAD) to ${{ env.SYNC_BRANCH }}"
+
       - name: Open conflict PR for manual resolution
-        if: steps.merge.outputs.conflict == 'true'
+        if: steps.check.outputs.needs-merge == 'true' && steps.merge.outputs.conflict == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           branch="sync-upstream-conflict"
-          git merge --abort
-          git checkout -B "$branch"
-          git merge upstream/main --no-edit || true
-          # Same reason as in the merge step above: this branch's workflow files
-          # must survive the merge untouched, whatever upstream did to them.
-          if [ -n "$(git diff --name-only HEAD -- .github/workflows)" ]; then
-            echo "::warning::Upstream changed these workflow files; keeping this branch's copies:"
-            git diff --name-only HEAD -- .github/workflows
-            git checkout HEAD -- .github/workflows
-            git rm -r --cached -q .github/workflows
-            git checkout HEAD -- .github/workflows
-            git clean -fdq .github/workflows
-          fi
           git add -A
-          git commit -m "merge: incorporate upstream/main (conflicts)" || true
-          git push --force origin "$branch"
+          git commit --no-edit
+          git push --force origin "HEAD:refs/heads/$branch"
           gh pr create --repo "${{ github.repository }}" \
-            --base localization/all-languages \
+            --base "${{ env.SYNC_BRANCH }}" \
             --head "$branch" \
             --title "Sync: merge upstream/main (resolve conflicts)" \
             --body "Automated sync encountered conflicts while merging upstream/main. Please resolve the conflict markers and merge this PR." || true
