@@ -120,7 +120,7 @@ sdk32="$(sdk_path 32)"
 in_use () { # <sdk> <path>
 	test -n "$(case "$1" in
 		"$sdk32") "$1/mingw32/bin/WhoUses.exe" -m "$1$2";;
-		*) "$1/mingw64/bin/WhoUses.exe" -m "$1$2";;
+		*) "$1/ucrt64/bin/WhoUses.exe" -m "$1$2";;
 		esac | grep '^[^-P]')"
 }
 
@@ -279,10 +279,11 @@ bundle_pdbs () { # [--directory=<artifacts-directory] [--unpack=<directory>] [--
 		echo "Unpacking .pdb files for $arch..." >&2
 
 		case $arch in
-			x86_64)
+			x86_64|ucrt64)
 				oarch=x86_64
-				mingw_package_prefix=mingw-w64-x86_64
-				artifact_suffix=64-bit
+				mingw_package_prefix=mingw-w64-ucrt-x86_64
+				artifact_suffix=ucrt64
+				packages="$(echo "$packages" | sed 's/ mingw-w64-openssl-pdb//')"
 				;;
 			i686)
 				oarch=i686
@@ -294,11 +295,10 @@ bundle_pdbs () { # [--directory=<artifacts-directory] [--unpack=<directory>] [--
 				mingw_package_prefix=mingw-w64-clang-aarch64
 				artifact_suffix=arm64
 				;;
-			ucrt64)
+			mingw64)
 				oarch=x86_64
-				mingw_package_prefix=mingw-w64-ucrt-x86_64
-				artifact_suffix=ucrt64
-				packages="$(echo "$packages" | sed 's/ mingw-w64-openssl-pdb//')"
+				mingw_package_prefix=mingw-w64-x86_64
+				artifact_suffix=64-bit
 				;;
 			*)
 				die "Unhandled architecture: $arch"
@@ -395,7 +395,7 @@ bundle_pdbs () { # [--directory=<artifacts-directory] [--unpack=<directory>] [--
 	done
 }
 
-create_sdk_artifact () { # [--out=<directory>] [--git-sdk=<directory>] [--architecture=(x86_64|i686|aarch64|ucrt64|auto)] [--bitness=(32|64)] [--force] <name>
+create_sdk_artifact () { # [--out=<directory>] [--git-sdk=<directory>] [--architecture=(x86_64|i686|aarch64|mingw64|ucrt64|auto)] [--bitness=(32|64)] [--force] <name>
 	git_sdk_path=/
 	output_path=
 	force=
@@ -496,12 +496,13 @@ create_sdk_artifact () { # [--out=<directory>] [--git-sdk=<directory>] [--archit
 	fi
 
 	case "$architecture" in
-	ucrt64)
+	x86_64|ucrt64)
+		architecture=x86_64
 		MSYSTEM=UCRT64
 		PREFIX="/ucrt64"
 		SDK_REPO="git-sdk-64"
 		;;
-	x86_64)
+	mingw64)
 		MSYSTEM=MINGW64
 		PREFIX="/mingw64"
 		# TODO update to git-sdk-amd64 after the repo has been updated
@@ -716,7 +717,9 @@ create_sdk_artifact () { # [--out=<directory>] [--git-sdk=<directory>] [--archit
 		then
 			printf '\n' >>"$sparse_checkout_file" &&
 			git -C "$git_sdk_path" show HEAD:.sparse/$mode >>"$sparse_checkout_file" &&
-			if test x86_64 = $architecture
+			if test x86_64 = $architecture &&
+				git -C "$git_sdk_path" rev-parse -q --verify \
+					HEAD:.sparse/$mode-i686 >/dev/null
 			then
 				printf '\n' >>"$sparse_checkout_file" &&
 				git -C "$git_sdk_path" show HEAD:.sparse/$mode-i686 >>"$sparse_checkout_file"
@@ -753,8 +756,8 @@ create_sdk_artifact () { # [--out=<directory>] [--git-sdk=<directory>] [--archit
 			then
 					PATH=/mingw32/bin:/mingw64/bin:/usr/bin:/usr/bin/core_perl:$SYSTEMROOT_MSYS/system32:$SYSTEMROOT_MSYS
 			else
-					export MSYSTEM=MINGW64
-					PATH=/mingw64/bin:/usr/bin:/usr/bin/core_perl:$SYSTEMROOT_MSYS/system32:$SYSTEMROOT_MSYS
+					export MSYSTEM=UCRT64
+					PATH=/ucrt64/bin:/usr/bin:/usr/bin/core_perl:$SYSTEMROOT_MSYS/system32:$SYSTEMROOT_MSYS
 			fi
 
 			# These Cygwin-style pseudo symlinks are marked as system files
@@ -813,16 +816,20 @@ build_mingw_w64_git () { # [--only-i686] [--only-x86_64] [--only-aarch64] [--onl
 		MINGW_ARCH=mingw32
 		export MINGW_ARCH
 		;;
-	--only-x86_64|--only-64-bit)
-		MINGW_ARCH=mingw64
+	--only-64-bit)
+		MINGW_ARCH=ucrt64
 		export MINGW_ARCH
 		;;
 	--only-aarch64)
 		MINGW_ARCH=clangarm64
 		export MINGW_ARCH
 		;;
-	--only-ucrt64)
+	--only-x86_64|--only-ucrt64)
 		MINGW_ARCH=ucrt64
+		export MINGW_ARCH
+		;;
+	--only-mingw64)
+		MINGW_ARCH=mingw64
 		export MINGW_ARCH
 		;;
 	--skip-test-artifacts)
@@ -942,7 +949,7 @@ build_mingw_w64_git () { # [--only-i686] [--only-x86_64] [--only-aarch64] [--onl
 		    -e "s/^\(sha256sums=..\)[0-9a-f]\{64\}/\1${sha256sum%% *}/" \
 		    -e '/^prepare /{N;s/$/&& sed -i s\/GIT_BUILT_FROM_COMMIT\/\\\"'$oid'\\\"\/ version.c \&\&/}' \
 			<PKGBUILD.$tag >PKGBUILD.src &&
-		MAKEFLAGS=${MAKEFLAGS:--j$(nproc)} MINGW_ARCH=mingw64 makepkg-mingw $force --allsource -p PKGBUILD.src
+		MAKEFLAGS=${MAKEFLAGS:--j$(nproc)} MINGW_ARCH=ucrt64 makepkg-mingw $force --allsource -p PKGBUILD.src
 	 fi) ||
 	die "Could not build mingw-w64-git\n"
 

@@ -54,6 +54,25 @@ begin
     Result[i]:=#0;
 end;
 
+// Search for the last occurence of a substring in another string or zero if not found.
+// RPos exists as a preprocessor function in innosetup, but not as a scripting function.
+function RPos(SubStr, S: AnyString): Integer;
+var
+    Len,i:Longint;
+begin
+    Len:=Length(SubStr);
+    
+    i:=Length(S)-Len+1;
+    while i>0 do begin
+        If (SameStr(SubStr,Copy(S,i,Len))) then begin
+            Result:=i;
+            Exit;
+        end;
+    end;
+
+    Result:=0;
+end;
+
 function AppendToArray(var AnArray:TArrayOfString;Str:String):Integer;
 begin
     Result:=GetArrayLength(AnArray)+1;
@@ -84,7 +103,7 @@ end;
 // Returns the path to the common or user shell folder as specified in "Param".
 function GetShellFolder(Param:string):string;
 begin
-    if IsAdminLoggedOn then begin
+    if IsAdmin then begin
         Param:='{common'+Param+'}';
     end else begin
         Param:='{user'+Param+'}';
@@ -92,7 +111,7 @@ begin
     Result:=ExpandConstant(Param);
 end;
 
-// As IsComponentSelected() is not supported during uninstall, this work-around
+// As WizardIsComponentSelected() is not supported during uninstall, this work-around
 // simply checks the Registry. This is unreliable if the user runs the installer
 // twice, the first time selecting the component, the second deselecting it.
 function IsComponentInstalled(Component:String):Boolean;

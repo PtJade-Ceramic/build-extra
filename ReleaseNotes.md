@@ -38,17 +38,22 @@ Git for Windows is distributed with other components yet, such as Bash, zlib, cu
 
 ## Changes since Git for Windows v2.55.0(5) (August 20th 2026)
 
-Following the [MSYS2 project](https://www.msys2.org/news/#2026-02-28-dropping-support-for-windows-81), on which Git for Windows is based, Windows 8.1 support will be dropped after Git for Windows v2.55.
+Following the [MSYS2 project](https://www.msys2.org/news/#2026-02-28-dropping-support-for-windows-81), on which Git for Windows is based, Windows 8.1 support was dropped; In [doing so](https://github.com/git-for-windows/git-sdk-64/pull/117), internal paths changed (`/mingw64/bin/git.exe` does not exist anymore, `/ucrt64/bin/git.exe` takes its role; if this breaks your setups, consider switching to `/cmd/git.exe` instead, which is guaranteed to stay stable).
+
+An issue with the installer for the previous version (v2.55.0.windows.5) caused the "Use external OpenSSH" option to be disabled for some users. This caused the bundled version of OpenSSH to be installed and overwrote any previously-saved choice of external OpenSSH. **If you rely on an external OpenSSH installation, and you updated to v2.55.0(5),** you should consider re-running the latest installer with "Only show new options" unchecked so that you can re-enable the external OpenSSH option. The bundled version of OpenSSH will be uninstalled automatically. If you do not rely on an external OpenSSH installation, or you did not install v2.55.0(5) specifically, you can safely ignore this notice.
 
 ### New Features
 
 * Comes with [Git LFS v3.8.0](https://github.com/git-lfs/git-lfs/releases/tag/v3.8.0).
 * Comes with [cURL v8.22.0](https://curl.se/changes.html#8_22_0).
+* Comes with [OpenSSL v3.5.8](https://www.openssl.org/news/openssl-3.5-notes.html).
 
 ### Bug Fixes
 
-* The installer [is now _actually_ a 64-bit one](https://github.com/git-for-windows/build-extra/pull/732), which fixes the problem that [the external OpenSSH option was broken in Git for Windows v2.55.0(5)](https://github.com/git-for-windows/git/issues/6374).
+* The installer [is now _actually_ a 64-bit one](https://github.com/git-for-windows/build-extra/pull/732), which fixes the problem that [the external OpenSSH option was broken in Git for Windows v2.55.0(5)](https://github.com/git-for-windows/git/issues/6374) (see notice above).
 * It is now [finally possible](https://github.com/git-for-windows/git/pull/6353) to commit 4GB objects or larger in Git for Windows.
+* [Fixes](https://github.com/git-for-windows/git/pull/6395) a bug where parallel checkouts could abort with "*** stack smashing detected ***: terminated".
+* A [bug](https://github.com/git-for-windows/git/issues/6403) introduced in Git for Windows v2.55.0(5), which caused vim to often open existing files with the first line missing, [was fixed](https://github.com/git-for-windows/msys2-runtime/pull/142).
 
 ## Changes since Git for Windows v2.55.0(4) (August 11th 2026)
 

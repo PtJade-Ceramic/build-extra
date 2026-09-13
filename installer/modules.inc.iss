@@ -46,12 +46,6 @@ const
     WAIT_TIMEOUT = $00000102;
     WAIT_FAILED  = $ffffffff;
 type
-#if Ver < EncodeVer(7, 0, 0)
-    HMODULE   = DWORD;
-    LONG      = Longint;
-    ULONG     = Cardinal;
-    ULONG_PTR = DWORD;
-#endif
     BYTE_PTR  = ULONG_PTR;
 
     IdList=array of DWORD;
@@ -506,8 +500,6 @@ var
     Name:SessionKey;
     Apps:array of RM_UNIQUE_PROCESS;
     Services:TArrayOfString;
-    Path:String;
-    PathLength:DWORD;
     Needed,Have,i:UINT;
     AppList:array of RM_PROCESS_INFO;
     ReasonList:IdList;
