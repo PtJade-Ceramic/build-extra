@@ -116,6 +116,17 @@ count_other_bashes () {
 	wc -l
 }
 
+# TLS-intercepting security software such as Watt Toolkit's "GitHub
+# acceleration" presents a certificate that carries no revocation information
+# at all, which makes Schannel fail the handshake with
+# CRYPT_E_NO_REVOCATION_CHECK (0x80092012).  Ask curl to ignore *missing*
+# revocation information -- while still rejecting certificates that are known
+# to be revoked -- where supported (`--ssl-revoke-best-effort`, i.e. in
+# Schannel builds of curl 7.70 and later).
+revoke_opt=
+curl --ssl-revoke-best-effort --version >/dev/null 2>&1 &&
+revoke_opt=--ssl-revoke-best-effort
+
 # Write HTTP GET response to stdout and return error code. This is equivalent
 # to curl --fail, except that we output the response body to stderr in case of
 # an HTTP error status.
@@ -123,6 +134,7 @@ http_get () {
 	url=$1
 	output=$(mktemp -t gfw-httpget-XXXXXXXX.txt)
 	code=$(curl \
+		$revoke_opt \
 		--silent \
 		--show-error \
 		--output "$output" \
@@ -352,7 +364,7 @@ update_git_for_windows () {
 	else
 		echo "Downloading $filename" >&2
 	fi
-	curl -# -L -o $installer $download || return
+	curl $revoke_opt -# -L -o $installer $download || return
 	start "" "$installer" //SILENT //NORESTART
 
 	# Kill all Bash processes (which will let MinTTY quit, too)"
