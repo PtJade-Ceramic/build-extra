@@ -288,6 +288,22 @@ cp -r /clangarm64/share/man/zh_HANT /clangarm64/share/man/zh_TW
 cp -r /clangarm64/share/doc/git-doc/zh_HANS-CN /clangarm64/share/doc/git-doc/zh_CN
 cp -r /clangarm64/share/doc/git-doc/zh_HANT /clangarm64/share/doc/git-doc/zh_TW
 
+# Report garbled documentation. U+FFFD is what a decoder emits when it cannot
+# decode its input, so it points at a broken translation (the upstream
+# git-manpages-l10n repository did contain such characters, e.g. until 4734604)
+# or at a broken conversion. This stays advisory on purpose: a garbled upstream
+# translation must not keep us from building, but it should be visible.
+if type powershell.exe >/dev/null 2>&1
+then
+	echo "==> checking the generated documentation for U+FFFD ..."
+	powershell.exe -NoProfile -ExecutionPolicy Bypass \
+		-File "$(cygpath -w "$BUILD_EXTRA/ci/scan-doc-fffd.ps1")" \
+		-Root "$(cygpath -w /clangarm64/share/doc/git-doc)","$(cygpath -w /clangarm64/share/man)" ||
+	echo "WARN: the U+FFFD documentation check did not pass, see the output above" >&2
+else
+	echo "WARN: powershell.exe is unavailable, skipping the U+FFFD check" >&2
+fi
+
 # -----------------------------------------------------------------------------
 # 4. English man page fallback (git source Documentation)
 # -----------------------------------------------------------------------------
