@@ -615,7 +615,7 @@ begin
             // Find out which form to use.
             if (BuiltinFSMonitorStopOption='') then begin
                 BuiltinFSMonitorStopOption:='(huh?)';
-                if not ExecAndCaptureOutput(AppDir+'\cmd\git.exe', 'fsmonitor--daemon -h', '', SW_SHOWNORMAL, ewWaitUntilTerminated, ExitCode, Output) or (ExitCode<>129) then begin
+                if not ExecAndCaptureOutput(AppDir+'\cmd\git.exe', 'fsmonitor--daemon -h', '', SW_SHOWNORMAL, ewWaitUntilTerminated, ExitCode, Output) or ((ExitCode<>129) and (ExitCode<>0)) then begin
                     if (ExitCode<>1) and (ExitCode<>127) then // Suppress message if `git.exe` was not found, or if it does not know about the built-in FSMonitor
                         LogError('Could not get FSMonitor help (exit code '+IntToStr(ExitCode)+'):'+#13+StringJoin(#13,Output.StdOut)+#13+StringJoin(#13,Output.StdErr));
                     Exit;
