@@ -1,5 +1,5 @@
-# Git for Windows v2.55.0(5) Release Notes
-Latest update: August 20th 2026
+# Git for Windows v2.56.0 Release Notes
+Latest update: September 28th 2026
 
 ## Introduction
 
@@ -36,6 +36,18 @@ Git is licensed under the GNU General Public License version 2.
 
 Git for Windows is distributed with other components yet, such as Bash, zlib, curl, tcl/tk, perl, MSYS2. Each of these components is governed by their respective license.
 
+## Changes since Git for Windows v2.56.0 (September 28th 2026)
+
+### New Features
+
+* Comes with [OpenSSL v3.5.9](https://www.openssl.org/news/openssl-3.5-notes.html).
+* To help with fixing [stale references to the Git Credential Manager](https://github.com/git-for-windows/git/issues/6455) after Git for Windows v2.56.0's MINGW64 -> UCRT64 migration, [a compatibility shim is now installed](https://github.com/git-for-windows/MINGW-packages/pull/224).
+
+### Bug Fixes
+
+* Suppressing the user-wide Git config via `GIT_CONFIG_GLOBAL=NUL` [was broken in v2.56.0](https://github.com/git-for-windows/git/issues/6449) (surprisingly, as a consequence of the MINGW64 -> UCRT64 migration), which [was fixed](https://github.com/git-for-windows/git/pull/6450).
+* [Fixed](https://github.com/git-for-windows/MINGW-packages/pull/222) a bug in Git for Windows, v2.56.0, where the x64 Git executables [lost their Authenticode signatures by mistake](https://github.com/git-for-windows/git/issues/6456).
+
 ## Changes since Git for Windows v2.55.0(5) (August 20th 2026)
 
 Following the [MSYS2 project](https://www.msys2.org/news/#2026-02-28-dropping-support-for-windows-81), on which Git for Windows is based, Windows 8.1 support was dropped; In [doing so](https://github.com/git-for-windows/git-sdk-64/pull/117), internal paths changed (`/mingw64/bin/git.exe` does not exist anymore, `/ucrt64/bin/git.exe` takes its role; if this breaks your setups, consider switching to `/cmd/git.exe` instead, which is guaranteed to stay stable).
@@ -44,6 +56,7 @@ An issue with the installer for the previous version (v2.55.0.windows.5) caused 
 
 ### New Features
 
+* Comes with [Git v2.56.0](https://github.com/git/git/blob/v2.56.0/Documentation/RelNotes/2.56.0.adoc).
 * Comes with [Git LFS v3.8.0](https://github.com/git-lfs/git-lfs/releases/tag/v3.8.0).
 * Comes with [cURL v8.22.0](https://curl.se/changes.html#8_22_0).
 * Comes with [OpenSSL v3.5.8](https://www.openssl.org/news/openssl-3.5-notes.html).
@@ -54,6 +67,7 @@ An issue with the installer for the previous version (v2.55.0.windows.5) caused 
 * It is now [finally possible](https://github.com/git-for-windows/git/pull/6353) to commit 4GB objects or larger in Git for Windows.
 * [Fixes](https://github.com/git-for-windows/git/pull/6395) a bug where parallel checkouts could abort with "*** stack smashing detected ***: terminated".
 * A [bug](https://github.com/git-for-windows/git/issues/6403) introduced in Git for Windows v2.55.0(5), which caused vim to often open existing files with the first line missing, [was fixed](https://github.com/git-for-windows/msys2-runtime/pull/142).
+* `git difftool` [will no longer crash](https://github.com/git-for-windows/git/pull/6426) upon encountering filenames that are illegal on Windows.
 
 ## Changes since Git for Windows v2.55.0(4) (August 11th 2026)
 
