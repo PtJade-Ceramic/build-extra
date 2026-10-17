@@ -189,6 +189,11 @@ has_pacman_package mingw-w64-$PACMAN_ARCH-curl-winssl &&
 LIBCURL_EXTRA=mingw-w64-$PACMAN_ARCH-curl-openssl-alternate ||
 LIBCURL_EXTRA=
 
+# The Perl package names were downcased in https://github.com/msys2/MSYS2-packages/pull/6648
+ls -d /var/lib/pacman/local/perl-* | grep -q perl-JSON &&
+PERL_JSON_PKGNAME=perl-JSON ||
+PERL_JSON_PKGNAME=perl-json
+
 # Packages that have been added after Git SDK 1.0.0 was released...
 required=
 for req in mingw-w64-$PACMAN_ARCH-git-credential-manager $SH_FOR_REBASE $LIBCURL_EXTRA \
@@ -196,7 +201,7 @@ for req in mingw-w64-$PACMAN_ARCH-git-credential-manager $SH_FOR_REBASE $LIBCURL
 		mingw-w64-$PACMAN_ARCH-connect unzip docx2txt \
 		mingw-w64-$PACMAN_ARCH-antiword mingw-w64-$PACMAN_ARCH-odt2txt \
 		mingw-w64-$PACMAN_ARCH-xpdf-tools ssh-pageant mingw-w64-$PACMAN_ARCH-git-lfs \
-		tig nano perl-JSON libpcre2_8 libpcre2posix $GIT_UPDATE_EXTRA_PACKAGES)
+		tig nano $PERL_JSON_PKGNAME libpcre2_8 libpcre2posix $GIT_UPDATE_EXTRA_PACKAGES)
 do
 	has_pacman_package $req ||
 	has_pacman_package $req-git ||
@@ -219,7 +224,11 @@ mingw-w64-$PACMAN_ARCH-git-extra openssh msys2-runtime $UTIL_PACKAGES $LIBCURL_E
 if test -z "$MINIMAL_GIT"
 then
 	packages="$packages mingw-w64-$PACMAN_ARCH-git-doc-html ncurses mintty vim nano
+<<<<<<< HEAD
 		winpty less man-db groff gcc-libs gnupg tar diffutils patch dos2unix which subversion perl-JSON
+=======
+		winpty less gnupg tar diffutils patch dos2unix which subversion $PERL_JSON_PKGNAME
+>>>>>>> upstream/main
 		mingw-w64-$PACMAN_ARCH-tk mingw-w64-$PACMAN_ARCH-connect docx2txt
 		mingw-w64-$PACMAN_ARCH-antiword mingw-w64-$PACMAN_ARCH-odt2txt ssh-pageant
 		mingw-w64-$PACMAN_ARCH-git-lfs mingw-w64-$PACMAN_ARCH-xz tig $GIT_UPDATE_EXTRA_PACKAGES"
