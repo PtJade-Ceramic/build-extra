@@ -288,6 +288,19 @@ cp -r /clangarm64/share/man/zh_HANT /clangarm64/share/man/zh_TW
 cp -r /clangarm64/share/doc/git-doc/zh_HANS-CN /clangarm64/share/doc/git-doc/zh_CN
 cp -r /clangarm64/share/doc/git-doc/zh_HANT /clangarm64/share/doc/git-doc/zh_TW
 
+# `git help --web` does not fall back to the English pages: when `help.htmlpath` points at a
+# language directory, every page missing there is a fatal error. Complete each language directory
+# with the English pages, so translated pages win and English fills the gaps (`man` does fall back,
+# which is why `share/man/<lang>` needs no such treatment).
+for lang_dir in /clangarm64/share/doc/git-doc/*/; do
+	case "$lang_dir" in
+	*/howto/|*/RelNotes/|*/technical/) continue ;;
+	esac
+	for page in /clangarm64/share/doc/git-doc/*.html; do
+		test -e "$lang_dir$(basename "$page")" || cp "$page" "$lang_dir"
+	done
+done
+
 # -----------------------------------------------------------------------------
 # 4. English man page fallback (git source Documentation)
 # -----------------------------------------------------------------------------

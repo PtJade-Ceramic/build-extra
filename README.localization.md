@@ -25,7 +25,15 @@ Upstream does not pass this variable by default (the installer ships no locale f
   (upstream deliberately excludes the large gcc runtime DLLs to save space, but groff depends on
   `msys-stdc++-6.dll`; without it `man git` outputs 0 bytes/blank).
 
-### 3. `keep-despite-upgrade.txt` - non-package-owned file list
+### 4. `post-install.bat` - expose `clangarm64` as `ucrt64`
+Visual Studio's Git integration only recognizes installations whose MSYS2 root is
+`ucrt64` (`Microsoft.TeamFoundation.Git.dll` looks for `ucrt64\bin\git.exe` and
+`ucrt64\libexec\git-core`); with `clangarm64` only, VS reports "Git is not
+installed". `post-install.bat` therefore creates a directory junction
+`<install>\ucrt64 -> <install>\clangarm64` (no-op when `ucrt64` already exists,
+e.g. for x86_64 builds).
+
+### 5. `keep-despite-upgrade.txt` - non-package-owned file list
 Lists custom files shipped with the package (they belong to no pacman package, so `pacman -Ql` does not list them):
 - `/clangarm64/share/man/**` - git man pages for all translated languages + English git man pages
 - `/clangarm64/share/man/zh_CN/**`, `/clangarm64/share/man/zh_TW/**` -
@@ -64,9 +72,13 @@ Takes effect via `LANG`/`LC_ALL` (test: `LANG=zh_CN.UTF-8 git status` -> Chinese
 - Same source as man pages: the same `make html` generates xhtml5 from translated adoc (`asciidoctor -b xhtml5`).
 - Installed to `clangarm64/share/doc/git-doc/<lang>/` (same directory as official English html, per-language subdirs).
 - Simplified/Traditional mapping as above: `zh_HANS-CN->zh_CN`, `zh_HANT->zh_TW`.
+- `git help --web` does **not** fall back to `htmldir/<page>.html`, so `ci/build-localized.sh`
+  completes every language directory with the English pages after installing the translations
+  (translated pages win, English fills the gaps). Without that step, `git help <cmd>` fails with
+  `documentation file not found` for the ~100 pages that are not translated.
 - **git help's html mode does NOT look up by locale automatically** (`builtin/help.c` only opens
-  `htmldir/<page>.html`); the user must configure a language directory:
-  `git config --global help.htmlpath "<install-dir>\clangarm64\share\doc\git-doc\<lang>"`
+  `htmldir/<page>.html`), the user must configure a language directory once:
+  `git config --global help.htmlPath "<install-dir>\clangarm64\share\doc\git-doc\<lang>"`
   (for the `<lang>` directory names, see [git-manpages-l10n README](https://github.com/jnavila/git-manpages-l10n/blob/master/README.md));
   after that `git help git` (`help.format=html`) opens the docs for that language in a browser.
 - Complete languages have about 150 pages per language (fr/ru/uk/sv/zh_HANS-CN/pt_BR etc.);

@@ -42,6 +42,16 @@
 	usr\bin\dash.exe -c '/usr/bin/dash usr/bin/rebaseall -p'
 )
 
+@REM Visual Studio only recognizes Git installations whose MSYS2 root is `ucrt64`
+@REM (it looks for `ucrt64\bin\git.exe`). ARM64 builds live in `clangarm64` instead,
+@REM so expose that directory under the expected name via a junction.
+@IF EXIST clangarm64\bin\git.exe @(
+	@IF NOT EXIST ucrt64\bin\git.exe @(
+		@IF EXIST ucrt64 @rmdir ucrt64 2>nul
+		@mklink /J ucrt64 clangarm64 >nul
+	)
+)
+
 @echo "running post-install"
 @REM Run the post-install scripts
 @usr\bin\bash.exe --norc -c "export PATH=/usr/bin:$PATH; export SYSCONFDIR=/etc; for p in $(export LC_COLLATE=C; echo /etc/post-install/*.post); do test -e \"$p\" && . \"$p\"; done"
