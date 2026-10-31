@@ -1,5 +1,5 @@
-# Git for Windows v2.55.0(5) Release Notes
-Latest update: August 20th 2026
+# Git for Windows v2.56.0(4) Release Notes
+Latest update: October 26th 2026
 
 ## Introduction
 
@@ -36,6 +36,45 @@ Git is licensed under the GNU General Public License version 2.
 
 Git for Windows is distributed with other components yet, such as Bash, zlib, curl, tcl/tk, perl, MSYS2. Each of these components is governed by their respective license.
 
+## Changes since Git for Windows v2.56.0(4) (October 26th 2026)
+
+### New Features
+
+* Comes with [Bash v5.3.20](https://cgit.git.savannah.gnu.org/cgit/bash.git/commit/?id=9c465866b7d849378369ef700cbe2965aa9691e3).
+* Comes with [Git Credential Manager v3.0.2](https://github.com/git-ecosystem/git-credential-manager/releases/tag/v3.0.2). Please note that v3.x has some breaking changes that may affect your workflows. Please read more information in [the GCM release notes](https://github.com/git-ecosystem/git-credential-manager/releases/tag/v3.0.2).
+
+## Changes since Git for Windows v2.56.0(3) (October 22nd 2026)
+
+This is another urgent security bug fix release, addressing [CVE-2026-111497](https://www.cve.org/CVERecord?id=CVE-2026-111497).
+
+### Bug Fixes
+
+* The executables included in the 32-bit MinGit had corrupt code-signatures, which [has been fixed](https://github.com/git-for-windows/MINGW-packages/pull/231).
+* Upgrades [the included brotli component](https://github.com/git-for-windows/git/issues/6514) to v1.2.1 to address [CVE-2026-111497](https://www.cve.org/CVERecord?id=CVE-2026-111497).
+
+## Changes since Git for Windows v2.56.0(2) (October 5th 2026)
+
+This is a security fix release, addressing [the eMudhra Intermediate CA Compromise](https://emudhra.we-have-a-problem.com/). It also addresses Git LFS' [CVE-2026-105803](https://github.com/git-lfs/git-lfs/security/advisories/GHSA-x72p-hmqp-46hw) by upgrading to v3.8.1.
+
+### New Features
+
+* Comes with [OpenSSH v10.6.P1](https://github.com/openssh/openssh-portable/releases/tag/V_10_6_P1).
+* Comes with [cURL v8.23.0](https://curl.se/changes.html#8_23_0).
+* Comes with [Git LFS v3.8.1](https://github.com/git-lfs/git-lfs/releases/tag/v3.8.1).
+
+## Changes since Git for Windows v2.56.0 (September 28th 2026)
+
+### New Features
+
+* Comes with [OpenSSL v3.5.9](https://www.openssl.org/news/openssl-3.5-notes.html).
+* To help with fixing [stale references to the Git Credential Manager](https://github.com/git-for-windows/git/issues/6455) after Git for Windows v2.56.0's MINGW64 -> UCRT64 migration, [a compatibility shim is now installed](https://github.com/git-for-windows/MINGW-packages/pull/224).
+
+### Bug Fixes
+
+* Suppressing the user-wide Git config via `GIT_CONFIG_GLOBAL=NUL` [was broken in v2.56.0](https://github.com/git-for-windows/git/issues/6449) (surprisingly, as a consequence of the MINGW64 -> UCRT64 migration), which [was fixed](https://github.com/git-for-windows/git/pull/6450).
+* [Fixed](https://github.com/git-for-windows/MINGW-packages/pull/222) a bug in Git for Windows, v2.56.0, where the x64 Git executables [lost their Authenticode signatures by mistake](https://github.com/git-for-windows/git/issues/6456).
+* An assertion [was fixed](https://github.com/git-for-windows/MINGW-packages/pull/226) that caused pushes to fail when the server requires a client certificate.
+
 ## Changes since Git for Windows v2.55.0(5) (August 20th 2026)
 
 Following the [MSYS2 project](https://www.msys2.org/news/#2026-02-28-dropping-support-for-windows-81), on which Git for Windows is based, Windows 8.1 support was dropped; In [doing so](https://github.com/git-for-windows/git-sdk-64/pull/117), internal paths changed (`/mingw64/bin/git.exe` does not exist anymore, `/ucrt64/bin/git.exe` takes its role; if this breaks your setups, consider switching to `/cmd/git.exe` instead, which is guaranteed to stay stable).
@@ -44,6 +83,7 @@ An issue with the installer for the previous version (v2.55.0.windows.5) caused 
 
 ### New Features
 
+* Comes with [Git v2.56.0](https://github.com/git/git/blob/v2.56.0/Documentation/RelNotes/2.56.0.adoc).
 * Comes with [Git LFS v3.8.0](https://github.com/git-lfs/git-lfs/releases/tag/v3.8.0).
 * Comes with [cURL v8.22.0](https://curl.se/changes.html#8_22_0).
 * Comes with [OpenSSL v3.5.8](https://www.openssl.org/news/openssl-3.5-notes.html).
@@ -54,6 +94,7 @@ An issue with the installer for the previous version (v2.55.0.windows.5) caused 
 * It is now [finally possible](https://github.com/git-for-windows/git/pull/6353) to commit 4GB objects or larger in Git for Windows.
 * [Fixes](https://github.com/git-for-windows/git/pull/6395) a bug where parallel checkouts could abort with "*** stack smashing detected ***: terminated".
 * A [bug](https://github.com/git-for-windows/git/issues/6403) introduced in Git for Windows v2.55.0(5), which caused vim to often open existing files with the first line missing, [was fixed](https://github.com/git-for-windows/msys2-runtime/pull/142).
+* `git difftool` [will no longer crash](https://github.com/git-for-windows/git/pull/6426) upon encountering filenames that are illegal on Windows.
 
 ## Changes since Git for Windows v2.55.0(4) (August 11th 2026)
 
