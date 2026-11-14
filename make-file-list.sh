@@ -111,7 +111,7 @@ this_script_dir="$(cd "$(dirname "$0")" && pwd -W)" ||
 die "Could not determine this script's dir"
 
 pacman_stderr="/tmp/pacman-stderr.$$.txt"
-trap "rm \"$pacman_stderr\"" EXIT
+trap "rm -f \"$pacman_stderr\"" EXIT
 
 pacman_list () {
 	test -n "$MINIMAL_GIT" ||
@@ -165,13 +165,20 @@ mingw-w64-$PACMAN_ARCH-zstd"
 		grep -v 'database file for .* does not exist' <"$pacman_stderr" >&2
 		test $res = 0
 	fi &&
-	pacman -Ql $package_list 2>"$pacman_stderr" |
-	grep -v '/$' |
-	sed 's/^[^ ]* //'
+	# Capture `pacman -Ql`'s output in a variable (rather than piping it
+	# directly) so that we can catch its exit status: in a pipeline, the
+	# exit status is that of the last command, which would silently
+	# swallow e.g. a failing `pacman -Ql` and let this script emit a
+	# truncated file list.
+	pacman_ql_output="$(pacman -Ql $package_list 2>"$pacman_stderr")"
 	res=$?
 
 	grep -v 'database file for .* does not exist' <"$pacman_stderr" >&2
-	return $res
+	test $res = 0 || return $res
+
+	printf '%s\n' "$pacman_ql_output" |
+	grep -v '/$' |
+	sed 's/^[^ ]* //'
 }
 
 has_pacman_package () {
@@ -189,14 +196,19 @@ has_pacman_package mingw-w64-$PACMAN_ARCH-curl-winssl &&
 LIBCURL_EXTRA=mingw-w64-$PACMAN_ARCH-curl-openssl-alternate ||
 LIBCURL_EXTRA=
 
+# The Perl package names were downcased in https://github.com/msys2/MSYS2-packages/pull/6648
+ls -d /var/lib/pacman/local/perl-* | grep -q perl-JSON &&
+PERL_JSON_PKGNAME=perl-JSON ||
+PERL_JSON_PKGNAME=perl-json
+
 # Packages that have been added after Git SDK 1.0.0 was released...
 required=
 for req in mingw-w64-$PACMAN_ARCH-git-credential-manager $SH_FOR_REBASE $LIBCURL_EXTRA \
 	$(test -n "$MINIMAL_GIT" || echo \
-		mingw-w64-$PACMAN_ARCH-connect unzip docx2txt \
+		mingw-w64-$PACMAN_ARCH-connect unzip \
 		mingw-w64-$PACMAN_ARCH-antiword mingw-w64-$PACMAN_ARCH-odt2txt \
 		mingw-w64-$PACMAN_ARCH-xpdf-tools ssh-pageant mingw-w64-$PACMAN_ARCH-git-lfs \
-		tig nano perl-JSON libpcre2_8 libpcre2posix $GIT_UPDATE_EXTRA_PACKAGES)
+		tig nano $PERL_JSON_PKGNAME libpcre2_8 libpcre2posix $GIT_UPDATE_EXTRA_PACKAGES)
 do
 	has_pacman_package $req ||
 	has_pacman_package $req-git ||
@@ -219,8 +231,13 @@ mingw-w64-$PACMAN_ARCH-git-extra openssh msys2-runtime $UTIL_PACKAGES $LIBCURL_E
 if test -z "$MINIMAL_GIT"
 then
 	packages="$packages mingw-w64-$PACMAN_ARCH-git-doc-html ncurses mintty vim nano
+<<<<<<< HEAD
 		winpty less man-db groff gcc-libs gnupg tar diffutils patch dos2unix which subversion perl-JSON
 		mingw-w64-$PACMAN_ARCH-tk mingw-w64-$PACMAN_ARCH-connect docx2txt
+=======
+		winpty less gnupg tar diffutils patch dos2unix which subversion $PERL_JSON_PKGNAME
+		mingw-w64-$PACMAN_ARCH-tk mingw-w64-$PACMAN_ARCH-connect
+>>>>>>> upstream/main
 		mingw-w64-$PACMAN_ARCH-antiword mingw-w64-$PACMAN_ARCH-odt2txt ssh-pageant
 		mingw-w64-$PACMAN_ARCH-git-lfs mingw-w64-$PACMAN_ARCH-xz tig $GIT_UPDATE_EXTRA_PACKAGES"
 	test i686 = "$ARCH" || packages="$packages iconv"
@@ -237,7 +254,14 @@ then
 	ASSUAN_0_EXCLUDE='\|assuan-0'
 fi
 
-pacman_list $packages "$@" |
+# Capture `pacman_list`'s output in a variable (rather than piping it
+# directly) so that we can catch its exit status: in a pipeline, the exit
+# status is that of the last command, which would silently swallow e.g. a
+# failing `pacman -Ql` and let this script emit a truncated file list.
+pacman_list_output="$(pacman_list $packages "$@")" ||
+die "Could not list the files of the packages"
+
+printf '%s\n' "$pacman_list_output" |
 
 grep -v -e '\.[acho]$' -e '\.l[ao]$' -e '/aclocal/' \
 	-e '^/usr/man/' -e '^/usr/.*/man/' -e '/pkgconfig/' -e '/emacs/' \
@@ -265,7 +289,7 @@ grep -v -e '\.[acho]$' -e '\.l[ao]$' -e '/aclocal/' \
 	-e "^/$MSYSTEM_LOWER/itcl/" \
 	-e "^/$MSYSTEM_LOWER/t\\(cl\\|k\\)[^/]*/\\(demos\\|msgs\\|encoding\\|tzdata\\)/" \
 	-e "^/$MSYSTEM_LOWER/bin/\\(autopoint\\|[a-z]*-config\\)$" \
-	-e "^/$MSYSTEM_LOWER/bin/lib\\(asprintf\\|gettext\\|gnutls\\|gnutlsxx\\|gmpxx\\|pcre[013-9a-oq-z]\\|pcre2-[13]\\|quadmath\\|stdc++\\|unwind\\|zip\\)[^/]*\\.dll$" \
+	-e "^/$MSYSTEM_LOWER/bin/lib\\(asprintf\\|gettext\\|gnutls\\|gnutlsxx\\|gmpxx\\|pcre[013-9a-oq-z]\\|pcre2-[13]\\|quadmath\\|stdc++\\|unwind\\|zip\\|zlibwapi\\)[^/]*\\.dll$" \
 	-e "^/$MSYSTEM_LOWER/bin/lib\\(atomic\\|charset\\|gomp\\|systre$EXCLUDE_MINGW_W64_DLLS\\)-[0-9]*\\.dll$" \
 	-e "^/$MSYSTEM_LOWER/bin/\\(asn1\\|gnutls\\|idn\\|mini\\|msg\\|nettle\\|ngettext\\|ocsp\\|pcre\\|rtmp\\|xgettext\\|zip\\)[^/]*\\.exe$" \
 	-e "^/$MSYSTEM_LOWER/bin/recode-sr-latin.exe$" \
