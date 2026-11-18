@@ -101,6 +101,18 @@ pacman_list () {
 	else
 		grep -v '^mingw64/'
 	fi
+	# Dynamically include all translated man pages and HTML docs from the SDK:
+	# new languages are picked up automatically, without maintaining the
+	# language-directory part of keep-despite (top-level English manN are
+	# already listed statically; the trailing sort|uniq dedupes, harmless
+	# overlap with keep-despite).
+	if test -d "/$MSYSTEM_LOWER/share/man" || test -d "/$MSYSTEM_LOWER/share/doc/git-doc"
+	then
+		find "/$MSYSTEM_LOWER/share/man" -mindepth 2 -type f \
+			! -path '*/share/man/man[0-9n]/*' 2>/dev/null
+		find "/$MSYSTEM_LOWER/share/doc/git-doc" -mindepth 2 \
+			-type f -name '*.html' 2>/dev/null
+	fi
 
 	package_list=$(for arg
 		do
@@ -166,7 +178,7 @@ git-extra openssh $UTIL_PACKAGES"
 if test -z "$MINIMAL_GIT"
 then
 	packages="$packages mingw-w64-$PACMAN_ARCH-git-doc-html ncurses mintty vim nano
-		winpty less gnupg tar diffutils patch dos2unix which subversion perl-JSON
+		winpty less man-db groff gcc-libs gnupg tar diffutils patch dos2unix which subversion perl-JSON
 		mingw-w64-$PACMAN_ARCH-tk mingw-w64-$PACMAN_ARCH-connect git-flow docx2txt
 		mingw-w64-$PACMAN_ARCH-antiword mingw-w64-$PACMAN_ARCH-odt2txt ssh-pageant
 		mingw-w64-$PACMAN_ARCH-git-lfs mingw-w64-$PACMAN_ARCH-xz tig $GIT_UPDATE_EXTRA_PACKAGES"
@@ -174,7 +186,7 @@ fi
 pacman_list $packages "$@" |
 
 grep -v -e '\.[acho]$' -e '\.l[ao]$' -e '/aclocal/' \
-	-e '/man/' -e '/pkgconfig/' -e '/emacs/' \
+	-e '^/usr/man/' -e '^/usr/.*/man/' -e '/pkgconfig/' -e '/emacs/' \
 	-e '^/usr/lib/python' -e '^/usr/lib/ruby' -e '^/\(mingw\|clang\)[^/]*/lib/python' \
 	-e '^/usr/share/subversion' \
 	-e '^/etc/skel/' -e '^/\(mingw\|clang\)[^/]*/etc/skel/' \
@@ -217,7 +229,7 @@ grep -v -e '\.[acho]$' -e '\.l[ao]$' -e '/aclocal/' \
 	-e "^\\($(echo $EXCLUDE_MISSING_BUILTINS | sed 's/ /\\|/g')\\)\$" \
 	-e '^/\(mingw\|clang\)[^/]*/share/gtk-doc/' \
 	-e '^/\(mingw\|clang\)[^/]*/share/nghttp2/' \
-	-e '^/usr/bin/msys-\(db\|curl\|icu\|gfortran\|stdc++\|quadmath\)[^/]*\.dll$' \
+	-e '^/usr/bin/msys-\(db\|curl\|icu\|gfortran\|quadmath\)[^/]*\.dll$' \
 	-e '^/usr/bin/msys-\('$(if test i686 = "$ARCH"
 	    then
 		echo 'uuid\|'
