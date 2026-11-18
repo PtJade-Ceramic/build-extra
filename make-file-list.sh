@@ -245,7 +245,15 @@ else
 			sed 's/ /\\|/g')\\)\$"
 fi |
 grep --perl-regexp -v -e '^/usr/(lib|share)/terminfo/(?!.*/(cygwin|dumb|screen.*|xterm.*)$)' |
-sed 's/^\///' | sort | uniq
+sed 's/^\///' | sort | uniq |
+# Keep only files that actually exist: `pacman -Ql` lists package-declared
+# files that may be missing (e.g. p11-kit's ar/LC_MESSAGES/p11-kit.mo in the
+# slimmed-down SDK); missing files make Inno Setup fail with "Source file ...
+# does not exist".
+while IFS= read -r f
+do
+	test -e "/$f" && echo "$f"
+done
 
 test -z "$PACKAGE_VERSIONS_FILE" ||
 pacman -Q filesystem $SH_FOR_REBASE rebase \
